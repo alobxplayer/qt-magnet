@@ -1,0 +1,164 @@
+name: Release Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+      - '*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Windows (${{ matrix.target }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: win_64
+            arch: win64_msvc2022_64
+            msvc_arch: x64
+          - target: win_arm64
+            arch: win64_msvc2022_arm64
+            msvc_arch: x64_arm64
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.msvc_arch }}
+
+      - name: Install Qt 6
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.*'
+          arch: ${{ matrix.arch }}
+          modules: 'qtbase qttools'
+
+      - name: Setup Ninja
+        uses: ashley-taylor/configure-ninja@v1
+
+      - name: Build and Package (${{ matrix.target }})
+        shell: pwsh
+        run: |
+          ./build.ps1 -Clean -PlatformName "${{ matrix.target }}" -QtDir $env:QT_ROOT_DIR
+
+      - name: Upload Windows Artifact (${{ matrix.target }})
+        uses: actions/upload-artifact@v4
+        with:
+          name: qt-magnet-${{ matrix.target }}
+          path: dist/${{ matrix.target }}/
+          if-no-files-found: error
+
+  build-linux-x64:
+    name: Linux (linux_64)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            ninja-build \
+            qt6-base-dev \
+            qt6-base-dev-tools \
+            qt6-tools-dev \
+            qt6-tools-dev-tools \
+            libsecret-1-dev \
+            libgl1-mesa-dev
+
+      - name: Build and Package (Linux x86_64)
+        run: |
+          chmod +x build.sh
+          ./build.sh --clean --platform linux_64
+
+      - name: Upload Linux x86_64 Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: qt-magnet-linux_64
+          path: dist/linux_64/
+          if-no-files-found: error
+
+  build-linux-arm64:
+    name: Linux (linux_arm64)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Build and Package (Linux ARM64 via Docker)
+        run: |
+          docker run --rm --platform linux/arm64 \
+            -v "${{ github.workspace }}:/work" \
+            -w /work \
+            debian:bookworm-slim \
+            bash -c "
+              set -e
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update -qq
+              apt-get install -y -qq build-essential cmake ninja-build qt6-base-dev qt6-base-dev-tools qt6-tools-dev qt6-tools-dev-tools libsecret-1-dev libgl1-mesa-dev
+              mkdir -p build/linux_arm64 dist/linux_arm64
+              cmake -B build/linux_arm64 -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=dist/linux_arm64
+              cmake --build build/linux_arm64 --config Release
+              cmake --install build/linux_arm64 --config Release
+            "
+
+      - name: Upload Linux ARM64 Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: qt-magnet-linux_arm64
+          path: dist/linux_arm64/
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub Release
+    needs: [build-windows, build-linux-x64, build-linux-arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Package artifacts into zip files
+        run: |
+          sudo apt-get update && sudo apt-get install -y zip
+          mkdir -p release-assets
+          TAG_NAME="${GITHUB_REF_NAME:-latest}"
+          
+          # Windows x64
+          (cd artifacts/qt-magnet-win_64 && zip -r "../../release-assets/qt-magnet-${TAG_NAME}-win_64.zip" .)
+          
+          # Windows ARM64
+          (cd artifacts/qt-magnet-win_arm64 && zip -r "../../release-assets/qt-magnet-${TAG_NAME}-win_arm64.zip" .)
+          
+          # Linux x86_64
+          (cd artifacts/qt-magnet-linux_64 && zip -r "../../release-assets/qt-magnet-${TAG_NAME}-linux_64.zip" .)
+          
+          # Linux ARM64
+          (cd artifacts/qt-magnet-linux_arm64 && zip -r "../../release-assets/qt-magnet-${TAG_NAME}-linux_arm64.zip" .)
+          
+          ls -la release-assets/
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*.zip
+          generate_release_notes: true

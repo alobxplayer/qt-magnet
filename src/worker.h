@@ -1,0 +1,77 @@
+#pragma once
+#include <QThread>
+#include <QString>
+#include <QVector>
+#include <QMap>
+#include <QList>
+#include <atomic>
+#include "qbtclient.h"
+
+class Config;
+class MagnetLink;
+
+class Worker : public QThread {
+    Q_OBJECT
+public:
+    enum Task { Prepare, Apply, QuickFinish, Cleanup };
+
+    Worker(const Config &cfg, const MagnetLink &link, bool quick, QObject *parent = nullptr);
+    ~Worker() override;
+
+    void setTask(Task task);
+    void requestCancel();
+    void resetCancel();
+    bool wasCancelled() const;
+
+    struct ApplyParams {
+        QString hash;
+        QMap<int, QList<int>> prioritiesByPrio;
+        bool anyChanged = false;
+        QString category;
+        QString tags;
+        QString savePath;
+        bool forceStart = true;
+        QString initialCategory;
+        QString initialSavePath;
+        QStringList trackers;
+    };
+    ApplyParams applyParams;
+
+    QString hash;
+    bool weAdded = false;
+    bool existed = false;
+    QString initialCategory;
+    QString initialSavePath;
+    QString initialTags;
+    QVector<TorrentFile> files;
+    QVector<QPair<QString, QString>> categories;
+    std::optional<TorrentInfo> torrentInfo;
+
+    bool resultOk = false;
+
+    QbtClient *client() { return _client; }
+
+signals:
+    void status(const QString &text);
+    void prepareFinished(bool success, const QString &error);
+    void applyFinished(bool success, const QString &error);
+    void quickFinished(bool success, const QString &error);
+    void cleanupFinished();
+
+protected:
+    void run() override;
+
+private:
+    void doPrepare();
+    void doApply();
+    void doQuickFinish();
+    void doCleanup();
+    void sleepCancellable(int ms);
+
+    const Config &_cfg;
+    const MagnetLink &_link;
+    bool _quick;
+    Task _task = Prepare;
+    QbtClient *_client = nullptr;
+    std::atomic<bool> _cancelRequested{false};
+};

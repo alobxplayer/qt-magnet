@@ -1,0 +1,48 @@
+# Build and distribution directories
+build/
+build-*/
+dist/
+bin/
+artifacts/
+release-assets/
+
+# CMake / Ninja / Compiler artifacts
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+build.ninja
+.ninja_log
+.ninja_deps
+compile_commands.json
+CMakeUserPresets.json
+.qt/
+*.autogen/
+*.user
+*.user.*
+*.autosave
+*.pdb
+*.ilk
+*.exp
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Compiled Qt translations
+translations/*.qm
+
+# Local configs, secrets, logs
+config.ini
+.env
+.env.*
+*.local
+*.log
+*.tmp
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
