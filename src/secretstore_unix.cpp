@@ -1,11 +1,22 @@
+#ifdef HAVE_LIBSECRET
+#pragma push_macro("signals")
+#pragma push_macro("slots")
+#pragma push_macro("emit")
+#undef signals
+#undef slots
+#undef emit
+
+#include <libsecret/secret.h>
+
+#pragma pop_macro("emit")
+#pragma pop_macro("slots")
+#pragma pop_macro("signals")
+#endif
+
 #include "secretstore.h"
 #include "logger.h"
 
 #include <QByteArray>
-
-#ifdef HAVE_LIBSECRET
-#include <libsecret/secret.h>
-#endif
 
 namespace {
 
