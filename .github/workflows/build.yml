@@ -3,7 +3,6 @@ name: Release Build
 on:
   push:
     tags:
-      - 'v*'
       - '*'
   workflow_dispatch:
 
@@ -23,7 +22,7 @@ jobs:
             msvc_arch: x64
           - target: win_arm64
             arch: win64_msvc2022_arm64
-            msvc_arch: x64_arm64
+            msvc_arch: amd64_arm64
 
     steps:
       - name: Checkout repository
@@ -42,7 +41,7 @@ jobs:
           modules: 'qtbase qttools'
 
       - name: Setup Ninja
-        uses: ashley-taylor/configure-ninja@v1
+        uses: seanmiddleditch/gha-setup-ninja@v6
 
       - name: Build and Package (${{ matrix.target }})
         shell: pwsh
@@ -141,19 +140,15 @@ jobs:
           sudo apt-get update && sudo apt-get install -y zip
           mkdir -p release-assets
           TAG_NAME="${GITHUB_REF_NAME:-latest}"
-          
-          # Windows x64
+
           (cd artifacts/qt-magnet-win_64 && zip -r "../../release-assets/qt-magnet-${TAG_NAME}-win_64.zip" .)
-          
-          # Windows ARM64
+
           (cd artifacts/qt-magnet-win_arm64 && zip -r "../../release-assets/qt-magnet-${TAG_NAME}-win_arm64.zip" .)
-          
-          # Linux x86_64
+
           (cd artifacts/qt-magnet-linux_64 && zip -r "../../release-assets/qt-magnet-${TAG_NAME}-linux_64.zip" .)
-          
-          # Linux ARM64
+
           (cd artifacts/qt-magnet-linux_arm64 && zip -r "../../release-assets/qt-magnet-${TAG_NAME}-linux_arm64.zip" .)
-          
+
           ls -la release-assets/
 
       - name: Publish GitHub Release
