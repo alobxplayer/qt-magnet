@@ -4,6 +4,8 @@ qt-magnet is a desktop utility that forwards `magnet:` links to remote torrent c
 
 It currently supports qBittorrent, Transmission and Aria2.
 
+Itself, it does not act as standalone torrent client, and requires installed one of the remote torrent clients mentioned earlier.
+
 ## Installation
 
 Prebuilt binaries for Windows and Linux are available on the [Releases](../../releases) page.
