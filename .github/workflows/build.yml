@@ -23,7 +23,7 @@ jobs:
             arch: win64_msvc2022_64
             msvc_arch: x64
           - target: win_arm64
-            arch: win64_msvc2022_arm64
+            arch: win64_msvc2022_arm64_cross_compiled
             msvc_arch: amd64_arm64
 
     steps:
@@ -40,7 +40,6 @@ jobs:
         with:
           version: '6.8.*'
           arch: ${{ matrix.arch }}
-          modules: 'qtbase qttools'
 
       - name: Setup Ninja
         uses: seanmiddleditch/gha-setup-ninja@v6
