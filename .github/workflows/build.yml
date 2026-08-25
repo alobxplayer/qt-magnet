@@ -2,6 +2,8 @@ name: Release Build
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
       - '*'
@@ -42,7 +44,7 @@ jobs:
           modules: 'qtbase qttools'
 
       - name: Setup Ninja
-        uses: ashley-taylor/configure-ninja@v1
+        uses: seanmiddleditch/gha-setup-ninja@v5
 
       - name: Build and Package (${{ matrix.target }})
         shell: pwsh
