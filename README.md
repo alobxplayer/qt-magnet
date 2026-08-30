@@ -1,6 +1,6 @@
 # qt-magnet
 
-qt-magnet is a desktop utility that forwards `magnet:` links to remote torrent clients, with a file selection dialog, category and tag support.
+qt-magnet is a desktop utility that forwards `.torrent` files and `magnet:` links to remote torrent clients, with a file selection dialog, category and tag support.
 
 It currently supports qBittorrent, Transmission and Aria2.
 
