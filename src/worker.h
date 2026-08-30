@@ -5,17 +5,16 @@
 #include <QMap>
 #include <QList>
 #include <atomic>
+#include "config.h"
 #include "qbtclient.h"
-
-class Config;
-class MagnetLink;
+#include "torrentpayload.h"
 
 class Worker : public QThread {
     Q_OBJECT
 public:
     enum Task { Prepare, Apply, QuickFinish, Cleanup };
 
-    Worker(const Config &cfg, const MagnetLink &link, bool quick, QObject *parent = nullptr);
+    Worker(const Config &cfg, const TorrentPayload &payload, bool quick, QObject *parent = nullptr);
     ~Worker() override;
 
     void setTask(Task task);
@@ -68,8 +67,8 @@ private:
     void doCleanup();
     void sleepCancellable(int ms);
 
-    const Config &_cfg;
-    const MagnetLink &_link;
+    Config _cfg;
+    TorrentPayload _payload;
     bool _quick;
     Task _task = Prepare;
     QbtClient *_client = nullptr;

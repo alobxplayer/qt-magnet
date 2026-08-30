@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(qt-magnet LANGUAGES CXX)
+project(qt-magnet VERSION 1.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -20,6 +20,10 @@ set(SOURCES
     src/secretstore.h
     src/magnetlink.cpp
     src/magnetlink.h
+    src/torrentfile.cpp
+    src/torrentfile.h
+    src/torrentpayload.cpp
+    src/torrentpayload.h
     src/format.cpp
     src/format.h
     src/qbtclient.cpp
@@ -109,6 +113,10 @@ set(TEST_SOURCES
     src/secretstore.h
     src/magnetlink.cpp
     src/magnetlink.h
+    src/torrentfile.cpp
+    src/torrentfile.h
+    src/torrentpayload.cpp
+    src/torrentpayload.h
     src/format.cpp
     src/format.h
     src/qbtclient.cpp

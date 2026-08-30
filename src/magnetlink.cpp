@@ -40,10 +40,10 @@ void takeExactTopic(MagnetLink &m, const QString &val)
             m.hash = hex;
     } else if (val.startsWith(btmh, Qt::CaseInsensitive)) {
         const QString raw = val.mid(btmh.length()).trimmed().toLower();
-        if (raw.startsWith(QLatin1String("1220")) && raw.length() >= 68 && isHex(raw)) {
+        if (raw.startsWith(QLatin1String("1220")) && raw.length() == 68 && isHex(raw)) {
             m.hashV2 = raw.mid(4, 64);
             if (m.hash.isEmpty())
-                m.hash = m.hashV2.left(40);
+                m.hash = m.hashV2;
         }
     }
 }
@@ -102,7 +102,9 @@ MagnetLink MagnetLink::parse(const QString &uri)
         } else if (key == QLatin1String("dn") && m.displayName.isEmpty()) {
             m.displayName = val.trimmed();
         } else if (key == QLatin1String("tr") && !val.isEmpty()) {
-            m.trackers.append(val);
+            const QString tr = val.trimmed();
+            if (!tr.isEmpty())
+                m.trackers.append(tr);
         }
     }
 
@@ -123,7 +125,7 @@ static inline int base32Val(QChar ch)
 QString MagnetLink::base32ToHex(const QString &b32)
 {
     QByteArray bytes;
-    int buffer = 0;
+    quint32 buffer = 0;
     int bitsLeft = 0;
     for (QChar ch : b32.trimmed()) {
         if (ch == QLatin1Char('='))
@@ -131,11 +133,12 @@ QString MagnetLink::base32ToHex(const QString &b32)
         const int idx = base32Val(ch);
         if (idx < 0)
             return QString();
-        buffer = (buffer << 5) | idx;
+        buffer = (buffer << 5) | quint32(idx);
         bitsLeft += 5;
         if (bitsLeft >= 8) {
             bitsLeft -= 8;
             bytes.append(char((buffer >> bitsLeft) & 0xFF));
+            buffer &= (1u << bitsLeft) - 1u;
         }
     }
     if (bytes.size() != 20)

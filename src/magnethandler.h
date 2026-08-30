@@ -17,9 +17,23 @@ struct HandlerInfo {
 };
 
 namespace MagnetHandler {
-    void registerHandler();
-    bool unregisterHandler();
-    HandlerInfo query();
-    bool removeUserChoice();
+    void registerMagnetHandler();
+    bool unregisterMagnetHandler();
+    HandlerInfo queryMagnet();
+    bool removeMagnetUserChoice();
+
+    void registerTorrentHandler();
+    bool unregisterTorrentHandler();
+    HandlerInfo queryTorrent();
+    bool removeTorrentUserChoice();
+
+    void registerAll();
+    bool unregisterAll();
+
+    inline void registerHandler() { registerAll(); }
+    inline bool unregisterHandler() { return unregisterAll(); }
+    inline HandlerInfo query() { return queryMagnet(); }
+    inline bool removeUserChoice() { return removeMagnetUserChoice(); }
+
     void openSystemSettings();
 }

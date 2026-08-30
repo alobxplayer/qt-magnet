@@ -223,6 +223,35 @@ QString QbtClient::postMultipart(const QString &path, const QVector<QPair<QStrin
     }, path, allowRelogin);
 }
 
+QString QbtClient::postMultipartWithFile(const QString &path, const QVector<QPair<QString, QString>> &fields,
+                                        const QString &fileFieldName, const QString &fileName,
+                                        const QByteArray &fileData, const QString &fileContentType,
+                                        bool allowRelogin)
+{
+    return exec([this, path, fields, fileFieldName, fileName, fileData, fileContentType] {
+        auto *multi = new QHttpMultiPart(QHttpMultiPart::FormDataType);
+        for (const auto &pair : fields) {
+            QHttpPart part;
+            part.setHeader(QNetworkRequest::ContentDispositionHeader,
+                           QStringLiteral("form-data; name=\"%1\"").arg(pair.first));
+            part.setBody(pair.second.toUtf8());
+            multi->append(part);
+        }
+        QHttpPart filePart;
+        filePart.setHeader(QNetworkRequest::ContentDispositionHeader,
+                           QStringLiteral("form-data; name=\"%1\"; filename=\"%2\"").arg(fileFieldName, fileName));
+        filePart.setHeader(QNetworkRequest::ContentTypeHeader, fileContentType);
+        filePart.setBody(fileData);
+        multi->append(filePart);
+
+        QNetworkRequest req{ QUrl(_base + path) };
+        prepare(req);
+        QNetworkReply *reply = _nam->post(req, multi);
+        multi->setParent(reply);
+        return reply;
+    }, path, allowRelogin);
+}
+
 bool QbtClient::hasSessionCookie()
 {
     if (!_nam->cookieJar())
@@ -871,6 +900,89 @@ void QbtClient::addMagnet(const QString &magnet, bool addStopped, bool stopAfter
     }
 
     postMultipart(QStringLiteral("/api/v2/torrents/add"), fields);
+}
+
+void QbtClient::addTorrentFile(const QByteArray &torrentData, const QString &fileName,
+                              bool addStopped, bool stopAfterMetadata,
+                              const QString &savepath, const QString &category,
+                              const QString &tags, const QString &contentLayout)
+{
+    if (detectedType == ClientType::Aria2) {
+        QJsonArray params;
+        params.append(QString::fromLatin1(torrentData.toBase64()));
+        params.append(QJsonArray()); // uris
+
+        QJsonObject opts;
+        if (addStopped || stopAfterMetadata)
+            opts[QStringLiteral("pause")] = QStringLiteral("true");
+        if (!savepath.isEmpty())
+            opts[QStringLiteral("dir")] = savepath;
+
+        params.append(opts);
+        QJsonValue res = execAria2Rpc(QStringLiteral("aria2.addTorrent"), params);
+        QString gid = res.toString();
+        if (!gid.isEmpty()) {
+            try {
+                QJsonArray stParams;
+                stParams.append(gid);
+                QJsonObject st = execAria2Rpc(QStringLiteral("aria2.tellStatus"), stParams).toObject();
+                QString h = st.value(QStringLiteral("infoHash")).toString().toLower();
+                if (!h.isEmpty())
+                    _hashToGid[h] = gid;
+            } catch (const std::exception &ex) {
+                trace(QStringLiteral("Aria2 tellStatus on addTorrent: %1").arg(QString::fromUtf8(ex.what())));
+            }
+        }
+        return;
+    }
+
+    if (detectedType == ClientType::Transmission) {
+        QJsonObject args;
+        args[QStringLiteral("metainfo")] = QString::fromLatin1(torrentData.toBase64());
+        if (addStopped || stopAfterMetadata)
+            args[QStringLiteral("paused")] = true;
+        if (!savepath.isEmpty())
+            args[QStringLiteral("download-dir")] = savepath;
+        QStringList allLabels;
+        if (!category.isEmpty())
+            allLabels.append(category);
+        if (!tags.isEmpty()) {
+            const QStringList tagList = tags.split(QLatin1Char(','), Qt::SkipEmptyParts);
+            for (const QString &t : tagList)
+                allLabels.append(t.trimmed());
+        }
+        if (!allLabels.isEmpty()) {
+            QJsonArray arr;
+            for (const QString &l : allLabels)
+                arr.append(l);
+            args[QStringLiteral("labels")] = arr;
+        }
+        execTransmissionRpc(QStringLiteral("torrent-add"), args);
+        return;
+    }
+
+    QVector<QPair<QString, QString>> fields;
+    if (!savepath.isEmpty())
+        fields.append({ QStringLiteral("savepath"), savepath });
+    if (!category.isEmpty())
+        fields.append({ QStringLiteral("category"), category });
+    if (!tags.isEmpty())
+        fields.append({ QStringLiteral("tags"), tags });
+    if (!contentLayout.isEmpty())
+        fields.append({ QStringLiteral("contentLayout"), contentLayout });
+
+    if (stopAfterMetadata)
+        fields.append({ QStringLiteral("stopCondition"), QStringLiteral("MetadataReceived") });
+
+    if (addStopped) {
+        fields.append({ QStringLiteral("stopped"), QStringLiteral("true") });
+        fields.append({ QStringLiteral("paused"), QStringLiteral("true") });
+    }
+
+    QString uploadFileName = fileName.isEmpty() ? QStringLiteral("torrent.torrent") : fileName;
+    postMultipartWithFile(QStringLiteral("/api/v2/torrents/add"), fields,
+                          QStringLiteral("torrents"), uploadFileName,
+                          torrentData, QStringLiteral("application/x-bittorrent"));
 }
 
 QVector<TorrentFile> QbtClient::files(const QString &hash)
@@ -1526,7 +1638,12 @@ bool QbtClient::forceStartVerified(const QString &hash, int attempts,
             trace(QStringLiteral("setForceStart attempt %1: %2").arg(i).arg(ex.message));
         }
 
-        QThread::msleep(i == 1 ? 500 : 900);
+        const int sleepTotal = (i == 1 ? 500 : 900);
+        for (int ms = 0; ms < sleepTotal; ms += 100) {
+            if (_isCancelled && _isCancelled())
+                return false;
+            QThread::msleep(qMin(100, sleepTotal - ms));
+        }
 
         const auto t = infoOne(hash);
         if (!t) {
@@ -1537,7 +1654,7 @@ bool QbtClient::forceStartVerified(const QString &hash, int attempts,
         trace(QStringLiteral("Attempt %1: state '%2', force_start=%3")
                   .arg(i).arg(t->state, t->forceStart ? QStringLiteral("true") : QStringLiteral("false")));
         if (progress)
-            progress(QStringLiteral("Verification %1/%2: %3")
+            progress(QCoreApplication::translate("QbtClient", "Verification %1/%2: %3")
                          .arg(QString::number(i), QString::number(attempts), stateString(t->state)));
 
         if (detectedType == ClientType::Transmission || detectedType == ClientType::Aria2) {
@@ -1565,29 +1682,29 @@ bool QbtClient::forceStartVerified(const QString &hash, int attempts,
 
 QString QbtClient::stateString(const QString &state)
 {
-    static const QHash<QString, QString> m = {
-        { QStringLiteral("error"), QStringLiteral("Error") },
-        { QStringLiteral("missingFiles"), QStringLiteral("Missing files") },
-        { QStringLiteral("uploading"), QStringLiteral("Uploading") },
-        { QStringLiteral("pausedUP"), QStringLiteral("Paused (upload)") },
-        { QStringLiteral("stoppedUP"), QStringLiteral("Paused (upload)") },
-        { QStringLiteral("queuedUP"), QStringLiteral("Queued (upload)") },
-        { QStringLiteral("stalledUP"), QStringLiteral("Stalled (upload)") },
-        { QStringLiteral("checkingUP"), QStringLiteral("Checking (upload)") },
-        { QStringLiteral("forcedUP"), QStringLiteral("Forced upload") },
-        { QStringLiteral("allocating"), QStringLiteral("Allocating") },
-        { QStringLiteral("downloading"), QStringLiteral("Downloading") },
-        { QStringLiteral("metaDL"), QStringLiteral("Fetching metadata") },
-        { QStringLiteral("forcedMetaDL"), QStringLiteral("Fetching metadata (forced)") },
-        { QStringLiteral("pausedDL"), QStringLiteral("Paused") },
-        { QStringLiteral("stoppedDL"), QStringLiteral("Paused") },
-        { QStringLiteral("queuedDL"), QStringLiteral("Queued") },
-        { QStringLiteral("stalledDL"), QStringLiteral("Stalled") },
-        { QStringLiteral("checkingDL"), QStringLiteral("Checking") },
-        { QStringLiteral("forcedDL"), QStringLiteral("Forced download") },
-        { QStringLiteral("checkingResumeData"), QStringLiteral("Checking resume data") },
-        { QStringLiteral("moving"), QStringLiteral("Moving") },
+    static const QHash<QString, const char *> m = {
+        { QStringLiteral("error"), QT_TRANSLATE_NOOP("QbtClient", "Error") },
+        { QStringLiteral("missingFiles"), QT_TRANSLATE_NOOP("QbtClient", "Missing files") },
+        { QStringLiteral("uploading"), QT_TRANSLATE_NOOP("QbtClient", "Uploading") },
+        { QStringLiteral("pausedUP"), QT_TRANSLATE_NOOP("QbtClient", "Paused (upload)") },
+        { QStringLiteral("stoppedUP"), QT_TRANSLATE_NOOP("QbtClient", "Paused (upload)") },
+        { QStringLiteral("queuedUP"), QT_TRANSLATE_NOOP("QbtClient", "Queued (upload)") },
+        { QStringLiteral("stalledUP"), QT_TRANSLATE_NOOP("QbtClient", "Stalled (upload)") },
+        { QStringLiteral("checkingUP"), QT_TRANSLATE_NOOP("QbtClient", "Checking (upload)") },
+        { QStringLiteral("forcedUP"), QT_TRANSLATE_NOOP("QbtClient", "Forced upload") },
+        { QStringLiteral("allocating"), QT_TRANSLATE_NOOP("QbtClient", "Allocating") },
+        { QStringLiteral("downloading"), QT_TRANSLATE_NOOP("QbtClient", "Downloading") },
+        { QStringLiteral("metaDL"), QT_TRANSLATE_NOOP("QbtClient", "Fetching metadata") },
+        { QStringLiteral("forcedMetaDL"), QT_TRANSLATE_NOOP("QbtClient", "Fetching metadata (forced)") },
+        { QStringLiteral("pausedDL"), QT_TRANSLATE_NOOP("QbtClient", "Paused") },
+        { QStringLiteral("stoppedDL"), QT_TRANSLATE_NOOP("QbtClient", "Paused") },
+        { QStringLiteral("queuedDL"), QT_TRANSLATE_NOOP("QbtClient", "Queued") },
+        { QStringLiteral("stalledDL"), QT_TRANSLATE_NOOP("QbtClient", "Stalled") },
+        { QStringLiteral("checkingDL"), QT_TRANSLATE_NOOP("QbtClient", "Checking") },
+        { QStringLiteral("forcedDL"), QT_TRANSLATE_NOOP("QbtClient", "Forced download") },
+        { QStringLiteral("checkingResumeData"), QT_TRANSLATE_NOOP("QbtClient", "Checking resume data") },
+        { QStringLiteral("moving"), QT_TRANSLATE_NOOP("QbtClient", "Moving") },
     };
     const auto it = m.constFind(state);
-    return it != m.constEnd() ? it.value() : state;
+    return it != m.constEnd() ? QCoreApplication::translate("QbtClient", it.value()) : state;
 }

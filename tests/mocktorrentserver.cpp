@@ -1,5 +1,6 @@
 #include "mocktorrentserver.h"
 #include "magnetlink.h"
+#include "torrentfile.h"
 
 #include <QUrl>
 #include <QUrlQuery>
@@ -438,6 +439,45 @@ void MockServerWorker::handleQBittorrent(QTcpSocket *socket, const HttpRequest &
                 t.hash = QStringLiteral("c12fe1c06bba254a9dc9f519b335aa7c1367a88a");
                 t.name = QStringLiteral("Mock Torrent");
             }
+        } else {
+            int torrentsIdx = req.body.indexOf("name=\"torrents\"");
+            if (torrentsIdx >= 0) {
+                int bodyStart = req.body.indexOf("\r\n\r\n", torrentsIdx);
+                if (bodyStart < 0) bodyStart = req.body.indexOf("\n\n", torrentsIdx);
+                if (bodyStart >= 0) {
+                    bodyStart = (req.body.at(bodyStart) == '\r') ? bodyStart + 4 : bodyStart + 2;
+                    QByteArray boundary;
+                    QString ct = req.headers.value(QStringLiteral("content-type"));
+                    int bIdx = ct.indexOf(QLatin1String("boundary="));
+                    if (bIdx >= 0) {
+                        QString bStr = ct.mid(bIdx + 9).trimmed();
+                        if (bStr.startsWith(QLatin1Char('"')) && bStr.endsWith(QLatin1Char('"')))
+                            bStr = bStr.mid(1, bStr.length() - 2);
+                        boundary = bStr.toUtf8();
+                    }
+                    int bodyEnd = -1;
+                    if (!boundary.isEmpty()) {
+                        bodyEnd = req.body.indexOf("\r\n--" + boundary, bodyStart);
+                        if (bodyEnd < 0) bodyEnd = req.body.indexOf("\n--" + boundary, bodyStart);
+                    }
+                    if (bodyEnd < 0) {
+                        bodyEnd = req.body.indexOf("\r\n--", bodyStart);
+                        if (bodyEnd < 0) bodyEnd = req.body.indexOf("\n--", bodyStart);
+                    }
+                    if (bodyEnd >= 0) {
+                        QByteArray fileBytes = req.body.mid(bodyStart, bodyEnd - bodyStart);
+                        try {
+                            TorrentFileData parsed = TorrentFileData::parse(fileBytes);
+                            t.hash = parsed.hash.toLower();
+                            t.name = parsed.prettyName();
+                            t.trackers = parsed.trackers;
+                        } catch (...) {
+                            t.hash = QStringLiteral("c12fe1c06bba254a9dc9f519b335aa7c1367a88a");
+                            t.name = QStringLiteral("Mock Torrent File");
+                        }
+                    }
+                }
+            }
         }
         if (bodyStr.contains(QStringLiteral("name=\"stopped\"")) || bodyStr.contains(QStringLiteral("name=\"stopCondition\""))) {
             t.state = QStringLiteral("pausedDL");
@@ -687,15 +727,29 @@ void MockServerWorker::handleTransmission(QTcpSocket *socket, const HttpRequest 
 
     if (method == QLatin1String("torrent-add")) {
         QString magnet = args.value(QStringLiteral("filename")).toString();
+        QString metainfo = args.value(QStringLiteral("metainfo")).toString();
         MockTorrentData t;
-        try {
-            MagnetLink parsed = MagnetLink::parse(magnet);
-            t.hash = parsed.hash.toLower();
-            t.name = parsed.prettyName();
-            t.trackers = parsed.trackers;
-        } catch (...) {
-            t.hash = QStringLiteral("c12fe1c06bba254a9dc9f519b335aa7c1367a88a");
-            t.name = QStringLiteral("Transmission Mock");
+        if (!metainfo.isEmpty()) {
+            try {
+                QByteArray fileBytes = QByteArray::fromBase64(metainfo.toLatin1());
+                TorrentFileData parsed = TorrentFileData::parse(fileBytes);
+                t.hash = parsed.hash.toLower();
+                t.name = parsed.prettyName();
+                t.trackers = parsed.trackers;
+            } catch (...) {
+                t.hash = QStringLiteral("c12fe1c06bba254a9dc9f519b335aa7c1367a88a");
+                t.name = QStringLiteral("Transmission Mock File");
+            }
+        } else {
+            try {
+                MagnetLink parsed = MagnetLink::parse(magnet);
+                t.hash = parsed.hash.toLower();
+                t.name = parsed.prettyName();
+                t.trackers = parsed.trackers;
+            } catch (...) {
+                t.hash = QStringLiteral("c12fe1c06bba254a9dc9f519b335aa7c1367a88a");
+                t.name = QStringLiteral("Transmission Mock");
+            }
         }
         t.transmissionId = ++_idCounter;
         t.state = args.value(QStringLiteral("paused")).toBool(false) ? QStringLiteral("pausedDL") : QStringLiteral("downloading");
@@ -912,6 +966,36 @@ void MockServerWorker::handleAria2(QTcpSocket *socket, const HttpRequest &req)
         } catch (...) {
             t.hash = QStringLiteral("c12fe1c06bba254a9dc9f519b335aa7c1367a88a");
             t.name = QStringLiteral("Aria2 Mock");
+        }
+        t.gid = QString::number(++_idCounter, 16);
+        t.savePath = opt.value(QStringLiteral("dir")).toString(_defaultSavePath);
+        t.state = (opt.value(QStringLiteral("pause")).toString() == QLatin1String("true")) ? QStringLiteral("pausedDL") : QStringLiteral("downloading");
+
+        MockTorrentFile f1{0, t.savePath + QStringLiteral("/") + t.name + QStringLiteral(".bin"), 52428800, 1, 0.0};
+        t.files = {f1};
+        t.size = f1.size;
+        t.totalSize = f1.size;
+
+        _torrents.insert(t.hash.toLower(), t);
+        resObj[QStringLiteral("result")] = t.gid;
+        sendResponse(socket, 200, QStringLiteral("OK"), QJsonDocument(resObj).toJson(QJsonDocument::Compact), QStringLiteral("application/json"));
+        return;
+    }
+
+    if (method == QLatin1String("aria2.addTorrent")) {
+        QString b64 = !params.isEmpty() ? params.at(0).toString() : QString();
+        QJsonObject opt = params.size() > 2 ? params.at(2).toObject() : QJsonObject();
+
+        MockTorrentData t;
+        try {
+            QByteArray fileBytes = QByteArray::fromBase64(b64.toLatin1());
+            TorrentFileData parsed = TorrentFileData::parse(fileBytes);
+            t.hash = parsed.hash.toLower();
+            t.name = parsed.prettyName();
+            t.trackers = parsed.trackers;
+        } catch (...) {
+            t.hash = QStringLiteral("c12fe1c06bba254a9dc9f519b335aa7c1367a88a");
+            t.name = QStringLiteral("Aria2 Mock File");
         }
         t.gid = QString::number(++_idCounter, 16);
         t.savePath = opt.value(QStringLiteral("dir")).toString(_defaultSavePath);

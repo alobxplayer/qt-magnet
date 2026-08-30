@@ -23,8 +23,10 @@ protected:
 private slots:
     void onSave();
     void testConnection();
-    void assignHandler();
-    void removeHandler();
+    void assignMagnetHandler();
+    void removeMagnetHandler();
+    void assignTorrentHandler();
+    void removeTorrentHandler();
 
 private:
     void buildUi();
@@ -47,7 +49,8 @@ private:
     QThread *_testThread = nullptr;
     std::shared_ptr<std::atomic<bool>> _testCancel;
 
-    QLabel *_handlerStatus = nullptr;
+    QLabel *_magnetHandlerStatus = nullptr;
+    QLabel *_torrentHandlerStatus = nullptr;
 
     QCheckBox *_quickMode = nullptr;
     QCheckBox *_forceStart = nullptr;

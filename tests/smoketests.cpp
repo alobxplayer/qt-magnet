@@ -13,6 +13,8 @@
 #include "format.h"
 #include "logger.h"
 #include "magnetlink.h"
+#include "torrentfile.h"
+#include "torrentpayload.h"
 #include "secretstore.h"
 #include "qbtclient.h"
 #include "worker.h"
@@ -69,7 +71,7 @@ static void runUnitTests()
     QString v2full = QStringLiteral("0000000000000000000000000000000000000000000000000000000000000001");
     auto m4 = MagnetLink::parse(QStringLiteral("magnet:?xt=urn:btmh:1220") + v2full);
     eq(m4.hashV2, v2full, QStringLiteral("v2 full hash"));
-    eq(m4.hash, v2full.left(40), QStringLiteral("v2 truncated"));
+    eq(m4.hash, v2full, QStringLiteral("v2 hash without truncation"));
 
     auto m5 = MagnetLink::parse(
         QStringLiteral("magnet:?xt=urn:btih:c12fe1c06bba254a9dc9f519b335aa7c1367a88a&xt=urn:btmh:1220") + v2full);
@@ -141,6 +143,64 @@ static void runUnitTests()
     empty.host.clear();
     empty.username.clear();
     check(!empty.isComplete(), QStringLiteral("isComplete=false on empty config"));
+
+    // --- Bencode & Torrent File Tests ---
+    QByteArray singleTorrentBytes = QByteArrayLiteral(
+        "d8:announce18:http://tr1.org/ann13:announce-listll18:http://tr1.org/annel18:http://tr2.org/annee7:comment11:Sample File4:infod6:lengthi1048576e4:name8:test.iso12:piece lengthi16384e6:pieces0:ee");
+    auto tf1 = TorrentFileData::parse(singleTorrentBytes, QStringLiteral("/tmp/test.torrent"));
+    check(!tf1.hash.isEmpty() && tf1.hash.length() == 40 && isHex(tf1.hash), QStringLiteral("Torrent: single-file SHA1 infohash"));
+    eq(tf1.displayName, QStringLiteral("test.iso"), QStringLiteral("Torrent: single-file displayName"));
+    eq(tf1.comment, QStringLiteral("Sample File"), QStringLiteral("Torrent: single-file comment"));
+    check(tf1.totalSize == 1048576, QStringLiteral("Torrent: single-file totalSize"));
+    check(tf1.files.size() == 1, QStringLiteral("Torrent: single-file files count == 1"));
+    if (tf1.files.size() == 1) {
+        eq(tf1.files[0].name, QStringLiteral("test.iso"), QStringLiteral("Torrent: single-file file name"));
+        check(tf1.files[0].size == 1048576, QStringLiteral("Torrent: single-file file size"));
+    }
+    check(tf1.trackers.size() == 2, QStringLiteral("Torrent: single-file trackers list"));
+
+    QByteArray multiTorrentBytes = QByteArrayLiteral(
+        "d8:announce18:http://tr1.org/ann4:infod5:filesld6:lengthi1024e4:pathl8:docs.txteed6:lengthi2048e4:pathl3:sub9:image.pngeee4:name10:my_project12:piece lengthi16384e6:pieces0:ee");
+    auto tf2 = TorrentFileData::parse(multiTorrentBytes);
+    check(!tf2.hash.isEmpty() && tf2.hash.length() == 40 && isHex(tf2.hash), QStringLiteral("Torrent: multi-file SHA1 infohash"));
+    eq(tf2.displayName, QStringLiteral("my_project"), QStringLiteral("Torrent: multi-file displayName"));
+    check(tf2.files.size() == 2, QStringLiteral("Torrent: multi-file files count == 2"));
+    if (tf2.files.size() == 2) {
+        eq(tf2.files[0].name, QStringLiteral("my_project/docs.txt"), QStringLiteral("Torrent: multi-file file 0 path"));
+        check(tf2.files[0].size == 1024, QStringLiteral("Torrent: multi-file file 0 size"));
+        eq(tf2.files[1].name, QStringLiteral("my_project/sub/image.png"), QStringLiteral("Torrent: multi-file file 1 path"));
+        check(tf2.files[1].size == 2048, QStringLiteral("Torrent: multi-file file 1 size"));
+    }
+    check(tf2.totalSize == 3072, QStringLiteral("Torrent: multi-file totalSize sum"));
+
+    check(TorrentFileData::looksLikeTorrent(QStringLiteral("test.torrent")), QStringLiteral("looksLikeTorrent .torrent"));
+    check(TorrentFileData::looksLikeTorrent(QStringLiteral("\"C:/My Torrents/sample.TORRENT\"")), QStringLiteral("looksLikeTorrent quoted uppercase"));
+    check(TorrentFileData::looksLikeTorrent(QStringLiteral("file:///home/user/test.torrent")), QStringLiteral("looksLikeTorrent file://"));
+    check(!TorrentFileData::looksLikeTorrent(QStringLiteral("magnet:?xt=urn:btih:...")), QStringLiteral("looksLikeTorrent magnet -> false"));
+
+    auto pMag = TorrentPayload::fromMagnet(QStringLiteral("magnet:?xt=urn:btih:c12fe1c06bba254a9dc9f519b335aa7c1367a88a&dn=Payload+Test"));
+    check(pMag.isMagnet() && !pMag.isFile(), QStringLiteral("TorrentPayload fromMagnet kind"));
+    eq(pMag.hash(), QStringLiteral("c12fe1c06bba254a9dc9f519b335aa7c1367a88a"), QStringLiteral("TorrentPayload magnet hash"));
+    eq(pMag.displayName(), QStringLiteral("Payload Test"), QStringLiteral("TorrentPayload magnet displayName"));
+
+    bool corrupt1 = false;
+    try { TorrentFileData::parse(QByteArray()); } catch (...) { corrupt1 = true; }
+    check(corrupt1, QStringLiteral("Torrent: empty bytes throws"));
+
+    bool corrupt2 = false;
+    try { TorrentFileData::parse(QByteArrayLiteral("i42e")); } catch (...) { corrupt2 = true; }
+    check(corrupt2, QStringLiteral("Torrent: root integer throws"));
+
+    bool corrupt3 = false;
+    try { TorrentFileData::parse(QByteArrayLiteral("d4:spam4:eggse")); } catch (...) { corrupt3 = true; }
+    check(corrupt3, QStringLiteral("Torrent: missing info dict throws"));
+
+    bool corruptOverflow = false;
+    try { TorrentFileData::parse(QByteArrayLiteral("d4:info2147483640:abce")); } catch (...) { corruptOverflow = true; }
+    check(corruptOverflow, QStringLiteral("Torrent: integer overflow string length throws safely"));
+
+    check(!TorrentFileData::looksLikeTorrent(QStringLiteral("magnet:?xt=urn:btih:c12fe1c06bba254a9dc9f519b335aa7c1367a88a&dn=file.torrent")),
+          QStringLiteral("Torrent: magnet with .torrent dn is not a torrent file"));
 }
 
 static void runQBittorrentTests(MockTorrentServer &server)
@@ -264,6 +324,20 @@ static void runQBittorrentTests(MockTorrentServer &server)
         reloginOk = reInfo.has_value();
     } catch (...) {}
     check(reloginOk, QStringLiteral("qBt: 403 triggers transparent re-login and request retry"));
+
+    QByteArray sampleTorrent = QByteArrayLiteral(
+        "d8:announce18:http://tr1.org/ann4:infod6:lengthi5000000e4:name15:file_sample.iso12:piece lengthi16384e6:pieces0:ee");
+    auto tfParsed = TorrentFileData::parse(sampleTorrent);
+    client.addTorrentFile(sampleTorrent, QStringLiteral("file_sample.iso.torrent"), true, false,
+                          QStringLiteral("C:/Downloads/ISOs"), QStringLiteral("Linux"),
+                          QStringLiteral("torrentfile, test"), QStringLiteral("Original"));
+    check(client.allHashes().contains(tfParsed.hash), QStringLiteral("qBt: addTorrentFile adds torrent to server"));
+    auto fileInfo = client.infoOne(tfParsed.hash);
+    check(fileInfo.has_value(), QStringLiteral("qBt: addTorrentFile info retrieved"));
+    if (fileInfo) {
+        eq(fileInfo->name, QStringLiteral("file_sample.iso"), QStringLiteral("qBt: addTorrentFile name verified"));
+        check(fileInfo->isStopped(), QStringLiteral("qBt: addTorrentFile is stopped"));
+    }
 }
 
 static void runTransmissionTests(MockTorrentServer &server)
@@ -344,6 +418,20 @@ static void runTransmissionTests(MockTorrentServer &server)
 
     client.deleteTorrent(hash, true);
     check(!client.allHashes().contains(hash), QStringLiteral("Transmission: deleteTorrent removed torrent"));
+
+    QByteArray sampleTrTorrent = QByteArrayLiteral(
+        "d8:announce18:http://tr1.org/ann4:infod6:lengthi7000000e4:name16:tr_file_test.iso12:piece lengthi16384e6:pieces0:ee");
+    auto tfTrParsed = TorrentFileData::parse(sampleTrTorrent);
+    client.addTorrentFile(sampleTrTorrent, QStringLiteral("tr_file_test.iso.torrent"), true, false,
+                          QStringLiteral("/downloads/tr"), QStringLiteral("ISOs"),
+                          QStringLiteral("tr_tag"), QString());
+    check(client.allHashes().contains(tfTrParsed.hash), QStringLiteral("Transmission: addTorrentFile adds torrent to server"));
+    auto trFileInfo = client.infoOne(tfTrParsed.hash);
+    check(trFileInfo.has_value(), QStringLiteral("Transmission: addTorrentFile info retrieved"));
+    if (trFileInfo) {
+        eq(trFileInfo->name, QStringLiteral("tr_file_test.iso"), QStringLiteral("Transmission: addTorrentFile name verified"));
+        check(trFileInfo->isStopped(), QStringLiteral("Transmission: addTorrentFile is stopped"));
+    }
 }
 
 static void runAria2Tests(MockTorrentServer &server)
@@ -408,6 +496,20 @@ static void runAria2Tests(MockTorrentServer &server)
 
     client.deleteTorrent(hash, true);
     check(!client.allHashes().contains(hash), QStringLiteral("Aria2: deleteTorrent removed torrent"));
+
+    QByteArray sampleAria2Torrent = QByteArrayLiteral(
+        "d8:announce18:http://tr1.org/ann4:infod6:lengthi9000000e4:name19:aria2_file_test.iso12:piece lengthi16384e6:pieces0:ee");
+    auto tfAria2Parsed = TorrentFileData::parse(sampleAria2Torrent);
+    client.addTorrentFile(sampleAria2Torrent, QStringLiteral("aria2_file_test.iso.torrent"), true, false,
+                          QStringLiteral("C:/Downloads/Aria2"), QString(),
+                          QString(), QString());
+    check(client.allHashes().contains(tfAria2Parsed.hash), QStringLiteral("Aria2: addTorrentFile adds torrent to server"));
+    auto aria2FileInfo = client.infoOne(tfAria2Parsed.hash);
+    check(aria2FileInfo.has_value(), QStringLiteral("Aria2: addTorrentFile info retrieved"));
+    if (aria2FileInfo) {
+        eq(aria2FileInfo->name, QStringLiteral("aria2_file_test.iso"), QStringLiteral("Aria2: addTorrentFile name verified"));
+        check(aria2FileInfo->isStopped(), QStringLiteral("Aria2: addTorrentFile is stopped"));
+    }
 }
 
 static void runAutoDetectTests(MockTorrentServer &sQbt, MockTorrentServer &sTr, MockTorrentServer &sAria2)
@@ -468,7 +570,7 @@ static void runWorkerTests(MockTorrentServer &server)
     cfg.metadataTimeoutSec = 5;
     cfg.forceStartDelayMs = 0;
 
-    auto link = MagnetLink::parse(QStringLiteral("magnet:?xt=urn:btih:c12fe1c06bba254a9dc9f519b335aa7c1367a88a&dn=Worker+Test"));
+    auto link = TorrentPayload::fromMagnet(QStringLiteral("magnet:?xt=urn:btih:c12fe1c06bba254a9dc9f519b335aa7c1367a88a&dn=Worker+Test"));
 
     {
         Worker worker(cfg, link, false);
@@ -562,6 +664,36 @@ static void runWorkerTests(MockTorrentServer &server)
         check(finished, QStringLiteral("Worker: Cleanup deleted torrent"));
         check(!server.torrents().contains(worker.hash), QStringLiteral("Worker: torrent removed from mock server"));
     }
+
+    // Worker test with TorrentPayload from file
+    {
+        QByteArray sampleBytes = QByteArrayLiteral(
+            "d8:announce18:http://tr1.org/ann4:infod6:lengthi8000000e4:name17:worker_sample.iso12:piece lengthi16384e6:pieces0:ee");
+        TorrentPayload filePayload;
+        filePayload.kind = TorrentPayload::Kind::TorrentFile;
+        filePayload.torrentData = TorrentFileData::parse(sampleBytes, QStringLiteral("worker_sample.torrent"));
+
+        Worker worker(cfg, filePayload, false);
+        worker.setTask(Worker::Prepare);
+
+        bool finished = false;
+        bool success = false;
+        QObject::connect(&worker, &Worker::prepareFinished, [&](bool ok, const QString &) {
+            finished = true;
+            success = ok;
+        });
+
+        worker.start();
+        while (worker.isRunning()) {
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+            QThread::msleep(10);
+        }
+        worker.wait();
+
+        check(finished && success, QStringLiteral("Worker: Prepare with torrent file succeeded"));
+        check(!worker.hash.isEmpty(), QStringLiteral("Worker: hash populated from torrent file"));
+        check(!worker.files.isEmpty(), QStringLiteral("Worker: files populated immediately for torrent file"));
+    }
 }
 
 static void runCliAppE2ETests(MockTorrentServer &server)
@@ -625,6 +757,32 @@ static void runCliAppE2ETests(MockTorrentServer &server)
         check(server.requestCount() > countBefore, QStringLiteral("E2E: mock server received HTTP requests from qt-magnet.exe"));
         check(server.torrents().contains(QStringLiteral("c12fe1c06bba254a9dc9f519b335aa7c1367a88a")),
               QStringLiteral("E2E: torrent added to mock server by qt-magnet.exe"));
+    }
+
+    {
+        int countBefore = server.requestCount();
+        QString tempTorrentPath = QDir::tempPath() + QStringLiteral("/e2e_test.torrent");
+        QFile tf(tempTorrentPath);
+        if (tf.open(QIODevice::WriteOnly)) {
+            tf.write(QByteArrayLiteral(
+                "d8:announce18:http://tr1.org/ann4:infod6:lengthi1048576e4:name8:test.iso12:piece lengthi16384e6:pieces0:ee"));
+            tf.close();
+        }
+        auto sampleParsed = TorrentFileData::parse(QByteArrayLiteral(
+            "d8:announce18:http://tr1.org/ann4:infod6:lengthi1048576e4:name8:test.iso12:piece lengthi16384e6:pieces0:ee"));
+
+        QProcess proc;
+        proc.setProcessChannelMode(QProcess::MergedChannels);
+        proc.start(exePath, {QStringLiteral("/quick"), tempTorrentPath});
+        bool finished = proc.waitForFinished(15000);
+        if (!finished)
+            proc.kill();
+        check(finished, QStringLiteral("E2E: qt-magnet /quick with .torrent file finished within 15s"));
+        check(proc.exitCode() == 0, QStringLiteral("E2E: qt-magnet /quick with .torrent exit code is 0"));
+        check(server.requestCount() > countBefore, QStringLiteral("E2E: mock server received HTTP requests for .torrent file"));
+        check(server.torrents().contains(sampleParsed.hash),
+              QStringLiteral("E2E: torrent from .torrent file added to mock server"));
+        QFile::remove(tempTorrentPath);
     }
 
     if (hadConfig) {

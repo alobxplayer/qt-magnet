@@ -8,7 +8,14 @@ QString size(qint64 bytes)
     if (bytes < 0)
         return QStringLiteral("?");
 
-    static const char *units[] = { "B", "KiB", "MiB", "GiB", "TiB", "PiB" };
+    static const char *units[] = {
+        QT_TRANSLATE_NOOP("Format", "B"),
+        QT_TRANSLATE_NOOP("Format", "KiB"),
+        QT_TRANSLATE_NOOP("Format", "MiB"),
+        QT_TRANSLATE_NOOP("Format", "GiB"),
+        QT_TRANSLATE_NOOP("Format", "TiB"),
+        QT_TRANSLATE_NOOP("Format", "PiB")
+    };
     constexpr int kMaxUnitIndex = int(sizeof(units) / sizeof(units[0])) - 1;
     double v = double(bytes);
     int u = 0;

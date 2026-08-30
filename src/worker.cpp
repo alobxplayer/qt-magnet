@@ -1,13 +1,13 @@
 #include "worker.h"
 #include "config.h"
 #include "logger.h"
-#include "magnetlink.h"
+#include "torrentpayload.h"
 
 #include <QCoreApplication>
 #include <QThread>
 
-Worker::Worker(const Config &cfg, const MagnetLink &link, bool quick, QObject *parent)
-    : QThread(parent), _cfg(cfg), _link(link), _quick(quick)
+Worker::Worker(const Config &cfg, const TorrentPayload &payload, bool quick, QObject *parent)
+    : QThread(parent), _cfg(cfg), _payload(payload), _quick(quick)
 {
 }
 
@@ -75,30 +75,51 @@ void Worker::doPrepare()
 
         if (wasCancelled()) { emit prepareFinished(false, QString()); return; }
 
-        emit status(tr("Adding magnet link..."));
+        const QString targetHash = _payload.hash();
         QSet<QString> before = _client->allHashes();
-        existed = !_link.hash.isEmpty() && before.contains(_link.hash.toLower());
+        existed = !targetHash.isEmpty() && before.contains(targetHash.toLower());
 
-        try {
-            _client->addMagnet(_link.raw,
-                               false,
-                               !_quick && !existed,
-                               QString(),
-                               _cfg.defaultCategory,
-                               _cfg.defaultTags,
-                               _cfg.contentLayout);
-        } catch (const std::exception &ex) {
-            Log::write(QStringLiteral("addMagnet response: %1").arg(QString::fromUtf8(ex.what())));
-            if (!existed)
-                throw;
+        if (_payload.isFile()) {
+            emit status(tr("Adding torrent file..."));
+            try {
+                QString fn = _payload.displayName().isEmpty() ? QStringLiteral("torrent.torrent") : (_payload.displayName() + QStringLiteral(".torrent"));
+                _client->addTorrentFile(_payload.torrentData.rawData,
+                                       fn,
+                                       !_quick && !existed,
+                                       false,
+                                       QString(),
+                                       _cfg.defaultCategory,
+                                       _cfg.defaultTags,
+                                       _cfg.contentLayout);
+            } catch (const std::exception &ex) {
+                Log::write(QStringLiteral("addTorrentFile response: %1").arg(QString::fromUtf8(ex.what())));
+                if (!existed)
+                    throw;
+            }
+        } else {
+            emit status(tr("Adding magnet link..."));
+            try {
+                _client->addMagnet(_payload.magnet.raw,
+                                   false,
+                                   !_quick && !existed,
+                                   QString(),
+                                   _cfg.defaultCategory,
+                                   _cfg.defaultTags,
+                                   _cfg.contentLayout);
+            } catch (const std::exception &ex) {
+                Log::write(QStringLiteral("addMagnet response: %1").arg(QString::fromUtf8(ex.what())));
+                if (!existed)
+                    throw;
+            }
         }
 
-        if (existed && !_link.trackers.isEmpty()) {
+        const QStringList trList = _payload.trackers();
+        if (existed && !trList.isEmpty() && !targetHash.isEmpty()) {
             emit status(tr("Updating trackers..."));
             try {
-                _client->addTrackers(_link.hash, _link.trackers);
+                _client->addTrackers(targetHash, trList);
                 Log::write(QStringLiteral("Merged %1 trackers into existing torrent %2")
-                               .arg(_link.trackers.size()).arg(_link.hash));
+                               .arg(trList.size()).arg(targetHash));
             } catch (const std::exception &ex) {
                 Log::write(QStringLiteral("addTrackers: %1").arg(QString::fromUtf8(ex.what())));
             }
@@ -106,14 +127,14 @@ void Worker::doPrepare()
 
         emit status(existed ? tr("Torrent already exists. Loading...") : tr("Waiting for torrent..."));
         QString resolved = _client->resolveHash(
-            _link.hash, before,
+            targetHash, before,
             qMax(8000, _cfg.requestTimeoutSec * 1000),
             [this]() { return wasCancelled(); });
 
         if (resolved.isEmpty()) {
             if (wasCancelled()) { emit prepareFinished(false, QString()); return; }
-            if (!_link.hash.isEmpty())
-                resolved = _link.hash;
+            if (!targetHash.isEmpty())
+                resolved = targetHash;
             else
                 throw QbtException(tr("Torrent not found."), 0, QString());
         }
@@ -134,19 +155,34 @@ void Worker::doPrepare()
             return;
         }
 
-        emit status(existed ? tr("Updating torrent metadata...") : tr("Fetching metadata..."));
-        files = _client->waitForMetadata(
-            hash, _cfg.metadataTimeoutSec,
-            [this](int sec) { emit status(tr("Fetching metadata (%1 s)...").arg(sec)); },
-            [this]() { return wasCancelled(); },
-            !existed);
+        if (_payload.isFile()) {
+            try {
+                files = _client->files(hash);
+            } catch (...) {}
+            if (files.isEmpty())
+                files = _payload.torrentData.files;
 
-        if (wasCancelled()) { emit prepareFinished(false, QString()); return; }
+            if (!existed && !files.isEmpty()) {
+                try { _client->stopTorrent(hash); }
+                catch (const std::exception &ex) {
+                    Log::write(QStringLiteral("Pause after add: %1").arg(QString::fromUtf8(ex.what())));
+                }
+            }
+        } else {
+            emit status(existed ? tr("Updating torrent metadata...") : tr("Fetching metadata..."));
+            files = _client->waitForMetadata(
+                hash, _cfg.metadataTimeoutSec,
+                [this](int sec) { emit status(tr("Fetching metadata (%1 s)...").arg(sec)); },
+                [this]() { return wasCancelled(); },
+                !existed);
 
-        if (!existed && !files.isEmpty()) {
-            try { _client->stopTorrent(hash); }
-            catch (const std::exception &ex) {
-                Log::write(QStringLiteral("Pause after metadata: %1").arg(QString::fromUtf8(ex.what())));
+            if (wasCancelled()) { emit prepareFinished(false, QString()); return; }
+
+            if (!existed && !files.isEmpty()) {
+                try { _client->stopTorrent(hash); }
+                catch (const std::exception &ex) {
+                    Log::write(QStringLiteral("Pause after metadata: %1").arg(QString::fromUtf8(ex.what())));
+                }
             }
         }
 
@@ -226,7 +262,7 @@ void Worker::doApply()
             emit status(tr("Starting..."));
             try { _client->setForceStart(p.hash, false); } catch (const std::exception &ex) { Log::write(QStringLiteral("reset forceStart: %1").arg(QString::fromUtf8(ex.what()))); }
             _client->startTorrent(p.hash);
-            QThread::msleep(500);
+            sleepCancellable(500);
             auto t = _client->infoOne(p.hash);
             resultOk = t && !t->isStopped();
         }

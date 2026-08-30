@@ -35,6 +35,8 @@ void Config::setPassword(const QString &plain)
 {
     password.clear();
     if (plain.isEmpty()) {
+        if (!passwordEnc.isEmpty())
+            SecretStore::clear(username, passwordEnc);
         passwordEnc.clear();
         return;
     }

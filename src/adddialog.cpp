@@ -28,14 +28,10 @@ public:
         int col = treeWidget() ? treeWidget()->sortColumn() : 0;
         bool thisIsFile = data(0, IsFileRole).toBool();
         bool otherIsFile = other.data(0, IsFileRole).toBool();
-        if (!thisIsFile && otherIsFile) {
-            bool desc = treeWidget() && treeWidget()->header()->sortIndicatorOrder() == Qt::DescendingOrder;
-            return !desc;
-        }
-        if (thisIsFile && !otherIsFile) {
-            bool desc = treeWidget() && treeWidget()->header()->sortIndicatorOrder() == Qt::DescendingOrder;
-            return desc;
-        }
+        if (!thisIsFile && otherIsFile)
+            return true;
+        if (thisIsFile && !otherIsFile)
+            return false;
 
         if (col == 1) {
             return data(0, FileSizeRole).toLongLong() < other.data(0, FileSizeRole).toLongLong();
@@ -54,8 +50,8 @@ public:
 };
 } // namespace
 
-AddDialog::AddDialog(const Config &cfg, const MagnetLink &link, bool quick, QWidget *parent)
-    : QDialog(parent), _cfg(cfg), _link(link), _quick(quick)
+AddDialog::AddDialog(const Config &cfg, const TorrentPayload &payload, bool quick, QWidget *parent)
+    : QDialog(parent), _cfg(cfg), _payload(payload), _quick(quick)
 {
     buildUi();
     QTimer::singleShot(0, this, &AddDialog::startPrepare);
@@ -73,7 +69,7 @@ AddDialog::~AddDialog()
 
 void AddDialog::saveHeaderState()
 {
-    if (!_tree || !_tree->header())
+    if (_quick || !_tree || !_tree->header())
         return;
     Config c = Config::load();
     c.treeHeaderState = QString::fromLatin1(_tree->header()->saveState().toBase64());
@@ -89,7 +85,7 @@ void AddDialog::buildUi()
     auto *mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(0, 0, 0, 0);
 
-    _nameLabel = new QLabel(_link.prettyName(), this);
+    _nameLabel = new QLabel(_payload.prettyName(), this);
     _nameLabel->setTextFormat(Qt::PlainText);
     _nameLabel->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
     QFont f = _nameLabel->font();
@@ -147,9 +143,8 @@ void AddDialog::buildUi()
         forEachFileInTree(_tree, [](QTreeWidgetItem *item) {
             bool on = item->checkState(0) != Qt::Checked;
             setSubtreeCheck(item, on);
+            refreshAncestors(item);
         });
-        for (int i = 0; i < _tree->topLevelItemCount(); ++i)
-            _tree->topLevelItem(i)->setCheckState(0, computeFolderState(_tree->topLevelItem(i)));
         _blockTreeSignals = false;
         updateSummary();
     });
@@ -236,7 +231,7 @@ void AddDialog::buildUi()
 
 void AddDialog::startPrepare()
 {
-    _worker = new Worker(_cfg, _link, _quick, nullptr);
+    _worker = new Worker(_cfg, _payload, _quick, nullptr);
     _worker->setTask(Worker::Prepare);
     connect(_worker, &Worker::status, this, &AddDialog::onStatus, Qt::QueuedConnection);
     connect(_worker, &Worker::prepareFinished, this, &AddDialog::onPrepareFinished, Qt::QueuedConnection);
@@ -334,6 +329,12 @@ void AddDialog::populateInteractive(const QVector<TorrentFile> &files)
     _categoryBox->setCurrentText(cat);
     _tagsEdit->setText((_worker && (_worker->existed || !_worker->initialTags.isEmpty())) ? _worker->initialTags : _cfg.defaultTags);
     _pathEdit->setText(_worker ? _worker->initialSavePath : QString());
+
+    if (_worker && _worker->torrentInfo && !_worker->torrentInfo->name.isEmpty()) {
+        _nameLabel->setText(_worker->torrentInfo->name);
+    } else {
+        _nameLabel->setText(_payload.prettyName());
+    }
 
     if (_worker->existed) {
         _okButton->setText(tr("Update"));
@@ -737,9 +738,11 @@ void AddDialog::onOk()
     p.forceStart = _forceBox->isChecked();
     p.initialCategory = _worker->initialCategory;
     p.initialSavePath = _worker->initialSavePath;
-    p.trackers = _link.trackers;
+    p.trackers = _payload.trackers();
 
     _worker->applyParams = p;
+    if (_worker->isRunning())
+        _worker->wait();
     _worker->setTask(Worker::Apply);
     _worker->start();
 }

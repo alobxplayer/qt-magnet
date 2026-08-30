@@ -86,6 +86,10 @@ public:
     void addMagnet(const QString &magnet, bool addStopped, bool stopAfterMetadata,
                    const QString &savepath, const QString &category,
                    const QString &tags, const QString &contentLayout);
+    void addTorrentFile(const QByteArray &torrentData, const QString &fileName,
+                        bool addStopped, bool stopAfterMetadata,
+                        const QString &savepath, const QString &category,
+                        const QString &tags, const QString &contentLayout);
     QVector<TorrentFile> files(const QString &hash);
     void filePrio(const QString &hash, const QList<int> &ids, int priority);
     void setForceStart(const QString &hash, bool value);
@@ -146,6 +150,10 @@ private:
     QString get(const QString &path, bool allowRelogin = true);
     QString postForm(const QString &path, const QString &formBody, bool allowRelogin = true);
     QString postMultipart(const QString &path, const QVector<QPair<QString, QString>> &fields, bool allowRelogin = true);
+    QString postMultipartWithFile(const QString &path, const QVector<QPair<QString, QString>> &fields,
+                                  const QString &fileFieldName, const QString &fileName,
+                                  const QByteArray &fileData, const QString &fileContentType,
+                                  bool allowRelogin = true);
     bool hasSessionCookie();
     bool verifyAuthenticated();
     void callStartStop(const QString &hash, bool start);

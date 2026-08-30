@@ -13,9 +13,12 @@ constexpr qint64 kMaxBytes = 512 * 1024;
 
 QString logDir()
 {
-    QString dir = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
-    if (dir.isEmpty())
-        dir = QDir::tempPath() + QStringLiteral("/QtMagnet");
+    static const QString dir = []() {
+        QString d = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+        if (d.isEmpty())
+            d = QDir::tempPath() + QStringLiteral("/QtMagnet");
+        return d;
+    }();
     return dir;
 }
 }
@@ -29,6 +32,14 @@ QString filePath()
 
 void write(const QString &message)
 {
+    static thread_local bool inLogger = false;
+    if (inLogger)
+        return;
+    struct Guard {
+        Guard() { inLogger = true; }
+        ~Guard() { inLogger = false; }
+    } guard;
+
     static QMutex mutex;
     QMutexLocker locker(&mutex);
 
@@ -43,12 +54,12 @@ void write(const QString &message)
 
     if (f.exists() && f.size() > kMaxBytes) {
         if (f.open(QIODevice::ReadOnly)) {
-            QString all = QString::fromUtf8(f.readAll());
+            QByteArray all = f.readAll();
             f.close();
-            int idx = all.indexOf(QLatin1Char('\n'), all.length() / 2);
-            all = (idx >= 0) ? all.mid(idx + 1) : all.mid(all.length() / 2);
+            int idx = all.indexOf('\n', all.size() / 2);
+            all = (idx >= 0) ? all.mid(idx + 1) : all.mid(all.size() / 2);
             if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-                f.write(all.toUtf8());
+                f.write(all);
                 f.close();
             }
         }

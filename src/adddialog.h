@@ -10,7 +10,7 @@
 #include <QTimer>
 #include <QMenu>
 #include <functional>
-#include "magnetlink.h"
+#include "torrentpayload.h"
 
 class Config;
 class Worker;
@@ -31,7 +31,7 @@ enum TreeDataRole {
 class AddDialog : public QDialog {
     Q_OBJECT
 public:
-    AddDialog(const Config &cfg, const MagnetLink &link, bool quick, QWidget *parent = nullptr);
+    AddDialog(const Config &cfg, const TorrentPayload &payload, bool quick, QWidget *parent = nullptr);
     ~AddDialog() override;
 
     int exitCode() const { return _exitCode; }
@@ -82,7 +82,7 @@ private:
     static FolderStats computeFolder(QTreeWidgetItem *item);
 
     const Config &_cfg;
-    MagnetLink _link;
+    TorrentPayload _payload;
     bool _quick;
     Phase _phase = Preparing;
     int _exitCode = 1;

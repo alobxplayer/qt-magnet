@@ -168,26 +168,50 @@ QWidget *SettingsDialog::buildConnectionGroup()
 
 QWidget *SettingsDialog::buildHandlerGroup()
 {
-    auto *g = new QGroupBox(tr("Protocol Handler"), this);
-    auto *layout = new QVBoxLayout(g);
+    auto *container = new QWidget(this);
+    auto *mainLayout = new QVBoxLayout(container);
+    mainLayout->setContentsMargins(0, 0, 0, 0);
 
-    _handlerStatus = new QLabel(QStringLiteral("..."), this);
-    _handlerStatus->setTextFormat(Qt::PlainText);
-    _handlerStatus->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
-    _handlerStatus->setWordWrap(true);
-    layout->addWidget(_handlerStatus);
+    auto *gMagnet = new QGroupBox(tr("Magnet Protocol Handler (magnet:)"), this);
+    auto *lMagnet = new QVBoxLayout(gMagnet);
+    _magnetHandlerStatus = new QLabel(QStringLiteral("..."), this);
+    _magnetHandlerStatus->setTextFormat(Qt::PlainText);
+    _magnetHandlerStatus->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
+    _magnetHandlerStatus->setWordWrap(true);
+    lMagnet->addWidget(_magnetHandlerStatus);
 
-    auto *btnRow = new QHBoxLayout();
-    auto *assign = new QPushButton(tr("Register"), this);
-    connect(assign, &QPushButton::clicked, this, &SettingsDialog::assignHandler);
-    auto *remove = new QPushButton(tr("Unregister"), this);
-    connect(remove, &QPushButton::clicked, this, &SettingsDialog::removeHandler);
-    btnRow->addWidget(assign);
-    btnRow->addWidget(remove);
-    btnRow->addStretch();
-    layout->addLayout(btnRow);
+    auto *btnRowMagnet = new QHBoxLayout();
+    auto *assignMagnet = new QPushButton(tr("Register Magnet"), this);
+    connect(assignMagnet, &QPushButton::clicked, this, &SettingsDialog::assignMagnetHandler);
+    auto *removeMagnet = new QPushButton(tr("Unregister Magnet"), this);
+    connect(removeMagnet, &QPushButton::clicked, this, &SettingsDialog::removeMagnetHandler);
+    btnRowMagnet->addWidget(assignMagnet);
+    btnRowMagnet->addWidget(removeMagnet);
+    btnRowMagnet->addStretch();
+    lMagnet->addLayout(btnRowMagnet);
+    mainLayout->addWidget(gMagnet);
 
-    return g;
+    auto *gTorrent = new QGroupBox(tr("Torrent Files Handler (.torrent)"), this);
+    auto *lTorrent = new QVBoxLayout(gTorrent);
+    _torrentHandlerStatus = new QLabel(QStringLiteral("..."), this);
+    _torrentHandlerStatus->setTextFormat(Qt::PlainText);
+    _torrentHandlerStatus->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
+    _torrentHandlerStatus->setWordWrap(true);
+    lTorrent->addWidget(_torrentHandlerStatus);
+
+    auto *btnRowTorrent = new QHBoxLayout();
+    auto *assignTorrent = new QPushButton(tr("Register .torrent"), this);
+    connect(assignTorrent, &QPushButton::clicked, this, &SettingsDialog::assignTorrentHandler);
+    auto *removeTorrent = new QPushButton(tr("Unregister .torrent"), this);
+    connect(removeTorrent, &QPushButton::clicked, this, &SettingsDialog::removeTorrentHandler);
+    btnRowTorrent->addWidget(assignTorrent);
+    btnRowTorrent->addWidget(removeTorrent);
+    btnRowTorrent->addStretch();
+    lTorrent->addLayout(btnRowTorrent);
+    mainLayout->addWidget(gTorrent);
+
+    mainLayout->addStretch();
+    return container;
 }
 
 QWidget *SettingsDialog::buildBehaviorGroup()
@@ -300,28 +324,30 @@ void SettingsDialog::onSave()
         return;
     }
 
-    _cfg.clientType = _clientType->currentData().toString();
-    _cfg.host = host;
-    _cfg.port = _port->value();
-    _cfg.useHttps = _https->isChecked();
-    _cfg.username = _username->text().trimmed();
-    _cfg.setPassword(_password->text());
+    Config newCfg = _cfg;
+    newCfg.clientType = _clientType->currentData().toString();
+    newCfg.host = host;
+    newCfg.port = _port->value();
+    newCfg.useHttps = _https->isChecked();
+    newCfg.username = _username->text().trimmed();
+    newCfg.setPassword(_password->text());
 
-    _cfg.quickMode = _quickMode->isChecked();
-    _cfg.forceStartDefault = _forceStart->isChecked();
-    _cfg.deleteOnCancel = _deleteOnCancel->isChecked();
-    _cfg.autoCloseOnSuccess = _autoClose->isChecked();
-    _cfg.defaultCategory = _defaultCategory->text().trimmed();
-    _cfg.defaultTags = _defaultTags->text().trimmed();
-    _cfg.contentLayout = _contentLayout->currentData().toString();
-    _cfg.metadataTimeoutSec = _metadataTimeout->value();
-    _cfg.requestTimeoutSec = _requestTimeout->value();
-    _cfg.forceStartDelayMs = _forceDelayMs->value();
-    _cfg.autoCloseMs = _autoCloseMs->value();
-    _cfg.language = _languageBox->currentData().toString();
+    newCfg.quickMode = _quickMode->isChecked();
+    newCfg.forceStartDefault = _forceStart->isChecked();
+    newCfg.deleteOnCancel = _deleteOnCancel->isChecked();
+    newCfg.autoCloseOnSuccess = _autoClose->isChecked();
+    newCfg.defaultCategory = _defaultCategory->text().trimmed();
+    newCfg.defaultTags = _defaultTags->text().trimmed();
+    newCfg.contentLayout = _contentLayout->currentData().toString();
+    newCfg.metadataTimeoutSec = _metadataTimeout->value();
+    newCfg.requestTimeoutSec = _requestTimeout->value();
+    newCfg.forceStartDelayMs = _forceDelayMs->value();
+    newCfg.autoCloseMs = _autoCloseMs->value();
+    newCfg.language = _languageBox->currentData().toString();
 
     try {
-        _cfg.save();
+        newCfg.save();
+        _cfg = newCfg;
         Log::write(QStringLiteral("Settings saved."));
         accept();
     } catch (const std::exception &ex) {
@@ -388,51 +414,91 @@ void SettingsDialog::testConnection()
 
 void SettingsDialog::refreshHandlerStatus()
 {
-    HandlerInfo info;
     try {
-        info = MagnetHandler::query();
+        HandlerInfo infoMagnet = MagnetHandler::queryMagnet();
+        QString stateMagnet = infoMagnet.isOurs
+                                  ? tr("qt-magnet is default handler for magnet links.")
+                                  : tr("Current handler: %1.").arg(infoMagnet.description);
+        _magnetHandlerStatus->setText(stateMagnet);
+        if (infoMagnet.isOurs) {
+            setStatusLabelColor(_magnetHandlerStatus, true, palette());
+        } else {
+            _magnetHandlerStatus->setPalette(QPalette());
+        }
     } catch (const std::exception &ex) {
-        _handlerStatus->setText(tr("Query error: %1").arg(QString::fromUtf8(ex.what())));
-        _handlerStatus->setPalette(QPalette());
-        return;
+        _magnetHandlerStatus->setText(tr("Query error: %1").arg(QString::fromUtf8(ex.what())));
+        _magnetHandlerStatus->setPalette(QPalette());
     }
 
-    QString state = info.isOurs
-                        ? tr("qt-magnet is default handler.")
-                        : tr("Current handler: %1.").arg(info.description);
-    _handlerStatus->setText(state);
-
-    if (info.isOurs) {
-        setStatusLabelColor(_handlerStatus, true, palette());
-    } else {
-        _handlerStatus->setPalette(QPalette());
+    try {
+        HandlerInfo infoTorrent = MagnetHandler::queryTorrent();
+        QString stateTorrent = infoTorrent.isOurs
+                                   ? tr("qt-magnet is default handler for .torrent files.")
+                                   : tr("Current handler: %1.").arg(infoTorrent.description);
+        _torrentHandlerStatus->setText(stateTorrent);
+        if (infoTorrent.isOurs) {
+            setStatusLabelColor(_torrentHandlerStatus, true, palette());
+        } else {
+            _torrentHandlerStatus->setPalette(QPalette());
+        }
+    } catch (const std::exception &ex) {
+        _torrentHandlerStatus->setText(tr("Query error: %1").arg(QString::fromUtf8(ex.what())));
+        _torrentHandlerStatus->setPalette(QPalette());
     }
 }
 
-void SettingsDialog::assignHandler()
+void SettingsDialog::assignMagnetHandler()
 {
     try {
-        MagnetHandler::registerHandler();
-        MagnetHandler::removeUserChoice();
+        MagnetHandler::registerMagnetHandler();
+        MagnetHandler::removeMagnetUserChoice();
         refreshHandlerStatus();
     } catch (const std::exception &ex) {
-        Log::write(QStringLiteral("Assign handler error: %1").arg(QString::fromUtf8(ex.what())));
+        Log::write(QStringLiteral("Assign magnet handler error: %1").arg(QString::fromUtf8(ex.what())));
         QMessageBox::critical(this, QString::fromUtf8(kAppTitle),
-                              tr("Registration failed:\n\n%1").arg(QString::fromUtf8(ex.what())));
+                              tr("Magnet registration failed:\n\n%1").arg(QString::fromUtf8(ex.what())));
     }
 }
 
-void SettingsDialog::removeHandler()
+void SettingsDialog::removeMagnetHandler()
 {
     try {
-        bool removed = MagnetHandler::unregisterHandler();
+        bool removed = MagnetHandler::unregisterMagnetHandler();
         if (!removed)
             QMessageBox::information(this, QString::fromUtf8(kAppTitle),
-                                     tr("No registry entries found."));
+                                     tr("No magnet registry entries found."));
         refreshHandlerStatus();
     } catch (const std::exception &ex) {
-        Log::write(QStringLiteral("Remove handler error: %1").arg(QString::fromUtf8(ex.what())));
+        Log::write(QStringLiteral("Remove magnet handler error: %1").arg(QString::fromUtf8(ex.what())));
         QMessageBox::critical(this, QString::fromUtf8(kAppTitle),
-                              tr("Unregistration failed:\n\n%1").arg(QString::fromUtf8(ex.what())));
+                              tr("Magnet unregistration failed:\n\n%1").arg(QString::fromUtf8(ex.what())));
+    }
+}
+
+void SettingsDialog::assignTorrentHandler()
+{
+    try {
+        MagnetHandler::registerTorrentHandler();
+        MagnetHandler::removeTorrentUserChoice();
+        refreshHandlerStatus();
+    } catch (const std::exception &ex) {
+        Log::write(QStringLiteral("Assign torrent handler error: %1").arg(QString::fromUtf8(ex.what())));
+        QMessageBox::critical(this, QString::fromUtf8(kAppTitle),
+                              tr("Torrent registration failed:\n\n%1").arg(QString::fromUtf8(ex.what())));
+    }
+}
+
+void SettingsDialog::removeTorrentHandler()
+{
+    try {
+        bool removed = MagnetHandler::unregisterTorrentHandler();
+        if (!removed)
+            QMessageBox::information(this, QString::fromUtf8(kAppTitle),
+                                     tr("No .torrent registry entries found."));
+        refreshHandlerStatus();
+    } catch (const std::exception &ex) {
+        Log::write(QStringLiteral("Remove torrent handler error: %1").arg(QString::fromUtf8(ex.what())));
+        QMessageBox::critical(this, QString::fromUtf8(kAppTitle),
+                              tr("Torrent unregistration failed:\n\n%1").arg(QString::fromUtf8(ex.what())));
     }
 }
