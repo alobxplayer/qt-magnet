@@ -73,6 +73,20 @@
         <translation>qt-magnet - Quick Mode</translation>
     </message>
     <message>
+        <location filename="../src/adddialog.cpp" line="169"/>
+        <source>Protocol: %1
+Hash (v1): %2</source>
+        <translation>Protocol: %1
+Hash (v1): %2</translation>
+    </message>
+    <message>
+        <location filename="../src/adddialog.cpp" line="171"/>
+        <source>
+Hash (v2): %1</source>
+        <translation>
+Hash (v2): %1</translation>
+    </message>
+    <message>
         <location filename="../src/adddialog.cpp" line="177"/>
         <source>Filter files...</source>
         <translation>Filter files...</translation>
@@ -233,17 +247,17 @@
         <translation>Updating torrent...</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="923"/>
+        <location filename="../src/adddialog.cpp" line="924"/>
         <source>Cancelling...</source>
         <translation>Cancelling...</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="940"/>
+        <location filename="../src/adddialog.cpp" line="941"/>
         <source>Deleting torrent...</source>
         <translation>Deleting torrent...</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="1004"/>
+        <location filename="../src/adddialog.cpp" line="1005"/>
         <source>Error: %1</source>
         <translation>Error: %1</translation>
     </message>

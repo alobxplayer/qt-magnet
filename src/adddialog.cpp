@@ -166,9 +166,9 @@ void AddDialog::buildUi()
     _versionBadge = new QLabel(QStringLiteral("[%1]").arg(_payload.versionString()), this);
     _versionBadge->setStyleSheet(QStringLiteral(
         "QLabel { background-color: #2b5b84; color: #ffffff; border-radius: 4px; padding: 2px 7px; font-weight: bold; font-size: 11px; }"));
-    QString tip = QStringLiteral("Protocol: %1\nHash (v1): %2").arg(_payload.versionString(), _payload.hash());
+    QString tip = tr("Protocol: %1\nHash (v1): %2").arg(_payload.versionString(), _payload.hash());
     if (!_payload.hashV2().isEmpty())
-        tip += QStringLiteral("\nHash (v2): %1").arg(_payload.hashV2());
+        tip += tr("\nHash (v2): %1").arg(_payload.hashV2());
     _versionBadge->setToolTip(tip);
     topBar->addWidget(_versionBadge, 0, Qt::AlignVCenter);
     mainLayout->addLayout(topBar);
@@ -896,6 +896,7 @@ void AddDialog::onOk()
     p.forceStart = _forceBox->isChecked();
     p.initialCategory = _worker->initialCategory;
     p.initialSavePath = _worker->initialSavePath;
+    p.initialTags = _worker->initialTags;
     p.trackers = _payload.trackers();
 
     _worker->applyParams = p;
