@@ -81,6 +81,7 @@ private:
     struct FolderStats {
         qint64 size = 0;
         int fileCount = 0;
+        double doneBytes = 0.0;
     };
     static FolderStats computeFolder(QTreeWidgetItem *item);
 

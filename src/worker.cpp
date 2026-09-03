@@ -51,7 +51,15 @@ void Worker::sleepCancellable(int ms)
 
 void Worker::run()
 {
-    _client = new QbtClient(_cfg, [this](const QString &s) { emit status(s); }, [this]() { return wasCancelled(); });
+    auto statusCb = [this](const QString &s) {
+        if (_task != Poll)
+            emit status(s);
+    };
+    _client = new QbtClient(_cfg, statusCb, [this]() { return wasCancelled(); });
+    if (_detectedType != QbtClient::ClientType::Auto) {
+        _client->clientType = _detectedType;
+        _client->detectedType = _detectedType;
+    }
 
     switch (_task) {
     case Prepare:     doPrepare();     break;
@@ -70,6 +78,7 @@ void Worker::doPrepare()
     try {
         emit status(tr("Connecting..."));
         _client->login();
+        _detectedType = _client->detectedType;
         _client->fetchServerInfo();
         try { _client->preferences(); } catch (const std::exception &ex) { Log::write(QStringLiteral("fetch preferences: %1").arg(QString::fromUtf8(ex.what()))); }
         try { categories = _client->categories(); } catch (const std::exception &ex) { Log::write(QStringLiteral("fetch categories: %1").arg(QString::fromUtf8(ex.what()))); }

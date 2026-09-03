@@ -66,30 +66,48 @@ public:
     using QStyledItemDelegate::QStyledItemDelegate;
 
     void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override {
+        QStyleOptionViewItem opt = option;
+        initStyleOption(&opt, index);
+        opt.text.clear();
+        const QWidget *widget = opt.widget;
+        QStyle *style = widget ? widget->style() : QApplication::style();
+        style->drawControl(QStyle::CE_ItemViewItem, &opt, painter, widget);
+
         QModelIndex fileIndex = index.sibling(index.row(), kColFile);
         bool isFile = fileIndex.data(IsFileRole).toBool();
-        if (!isFile) {
-            QStyledItemDelegate::paint(painter, option, index);
+        QVariant progVal = fileIndex.data(ProgressRole);
+        if (!isFile && !progVal.isValid()) {
             return;
         }
 
-        double prog = fileIndex.data(ProgressRole).toDouble();
+        double prog = progVal.toDouble();
         if (prog < 0.0) prog = 0.0;
         if (prog > 1.0) prog = 1.0;
 
         QStyleOptionProgressBar barOpt;
-        barOpt.rect = option.rect.adjusted(4, 2, -4, -2);
+        barOpt.rect = opt.rect.adjusted(4, 2, -4, -2);
         barOpt.minimum = 0;
         barOpt.maximum = 1000;
         barOpt.progress = qRound(prog * 1000.0);
-        barOpt.text = (prog >= 1.0) ? QStringLiteral("100%")
+        QString text = (prog >= 1.0) ? QStringLiteral("100%")
                     : (prog <= 0.0) ? QStringLiteral("0%")
                     : QString::number(prog * 100.0, 'f', 1) + QLatin1Char('%');
+        barOpt.text = text;
         barOpt.textVisible = true;
         barOpt.textAlignment = Qt::AlignCenter;
-        barOpt.state = option.state | QStyle::State_Enabled;
+        barOpt.state = QStyle::State_Enabled | QStyle::State_Horizontal;
 
-        QApplication::style()->drawControl(QStyle::CE_ProgressBar, &barOpt, painter, option.widget);
+        style->drawControl(QStyle::CE_ProgressBar, &barOpt, painter, widget);
+
+        painter->save();
+        painter->setFont(opt.font);
+        bool darkTheme = (opt.palette.window().color().lightness() < 128);
+        QColor textColor = (opt.state & QStyle::State_Selected)
+            ? opt.palette.highlightedText().color()
+            : (darkTheme ? Qt::white : QColor(30, 30, 30));
+        painter->setPen(textColor);
+        painter->drawText(barOpt.rect, Qt::AlignCenter, text);
+        painter->restore();
     }
 };
 
@@ -616,18 +634,27 @@ void AddDialog::buildTree(const QVector<TorrentFile> &files)
 AddDialog::FolderStats AddDialog::computeFolder(QTreeWidgetItem *item)
 {
     if (item->data(kColFile, IsFileRole).toBool()) {
-        return { item->data(kColFile, FileSizeRole).toLongLong(), 1 };
+        qint64 sz = item->data(kColFile, FileSizeRole).toLongLong();
+        double p = item->data(kColFile, ProgressRole).toDouble();
+        return { sz, 1, sz * p };
     }
 
     qint64 sum = 0;
     int fileCount = 0;
+    double sumDone = 0.0;
     for (int i = 0; i < item->childCount(); ++i) {
         FolderStats childStats = computeFolder(item->child(i));
         sum += childStats.size;
         fileCount += childStats.fileCount;
+        sumDone += childStats.doneBytes;
     }
     item->setData(kColFile, FileSizeRole, sum);
     item->setData(kColIndex, FileSizeRole, sum);
+    double folderProg = (sum > 0) ? (sumDone / static_cast<double>(sum)) : 0.0;
+    item->setData(kColFile, ProgressRole, folderProg);
+    item->setData(kColIndex, ProgressRole, folderProg);
+    item->setData(kColProgress, ProgressRole, folderProg);
+
     QString baseName = item->data(kColFile, BaseNameRole).toString();
     if (baseName.isEmpty())
         baseName = item->text(kColFile);
@@ -637,7 +664,7 @@ AddDialog::FolderStats AddDialog::computeFolder(QTreeWidgetItem *item)
     item->setText(kColSize, Format::size(sum) + QStringLiteral(" (") + countStr + QStringLiteral(")"));
     item->setText(kColProgress, QString());
     item->setText(kColPriority, QString());
-    return { sum, fileCount };
+    return { sum, fileCount, sumDone };
 }
 
 void AddDialog::onHeaderContextMenu(const QPoint &pos)
@@ -1141,6 +1168,8 @@ void AddDialog::onPollFinished(bool success)
                 updateFileText(item);
             }
         });
+        for (int i = 0; i < _tree->topLevelItemCount(); ++i)
+            computeFolder(_tree->topLevelItem(i));
         _blockTreeSignals = false;
         _tree->viewport()->update();
     }

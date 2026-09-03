@@ -79,4 +79,5 @@ private:
     Task _task = Prepare;
     QbtClient *_client = nullptr;
     std::atomic<bool> _cancelRequested{false};
+    QbtClient::ClientType _detectedType = QbtClient::ClientType::Auto;
 };
