@@ -106,8 +106,10 @@ public:
                     : (prog <= 0.0) ? QStringLiteral("0%")
                     : QString::number(prog * 100.0, 'f', 1) + QLatin1Char('%');
         barOpt.text = text;
-        barOpt.textVisible = true;
+        barOpt.textVisible = false;
         barOpt.textAlignment = Qt::AlignCenter;
+        barOpt.palette = opt.palette;
+        barOpt.fontMetrics = opt.fontMetrics;
         barOpt.state = QStyle::State_Enabled | QStyle::State_Horizontal;
 
         style->drawControl(QStyle::CE_ProgressBar, &barOpt, painter, widget);
@@ -115,11 +117,28 @@ public:
         painter->save();
         painter->setFont(opt.font);
         bool darkTheme = (opt.palette.window().color().lightness() < 128);
-        QColor textColor = (opt.state & QStyle::State_Selected)
-            ? opt.palette.highlightedText().color()
-            : (darkTheme ? Qt::white : QColor(30, 30, 30));
-        painter->setPen(textColor);
-        painter->drawText(barOpt.rect, Qt::AlignCenter, text);
+        QColor unfilledColor = darkTheme ? Qt::white : QColor(30, 30, 30);
+        QColor filledColor = Qt::white;
+
+        int splitX = barOpt.rect.left() + qRound(barOpt.rect.width() * prog);
+        QRect filledRect(barOpt.rect.left(), barOpt.rect.top(), splitX - barOpt.rect.left(), barOpt.rect.height());
+        QRect unfilledRect(splitX, barOpt.rect.top(), barOpt.rect.right() - splitX + 1, barOpt.rect.height());
+
+        if (!filledRect.isEmpty() && prog > 0.0) {
+            painter->save();
+            painter->setClipRect(filledRect, Qt::IntersectClip);
+            painter->setPen(filledColor);
+            painter->drawText(barOpt.rect, Qt::AlignCenter, text);
+            painter->restore();
+        }
+
+        if (!unfilledRect.isEmpty() && prog < 1.0) {
+            painter->save();
+            painter->setClipRect(unfilledRect, Qt::IntersectClip);
+            painter->setPen(unfilledColor);
+            painter->drawText(barOpt.rect, Qt::AlignCenter, text);
+            painter->restore();
+        }
         painter->restore();
     }
 };
