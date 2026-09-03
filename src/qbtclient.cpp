@@ -45,6 +45,8 @@ TorrentInfo TorrentInfo::from(const QJsonObject &d)
 {
     TorrentInfo t;
     t.hash               = d.value(QStringLiteral("hash")).toString();
+    t.infoHashV1         = d.value(QStringLiteral("infohash_v1")).toString();
+    t.infoHashV2         = d.value(QStringLiteral("infohash_v2")).toString();
     t.name               = d.value(QStringLiteral("name")).toString();
     t.state              = d.value(QStringLiteral("state")).toString();
     t.savePath           = d.value(QStringLiteral("save_path")).toString();
@@ -104,6 +106,11 @@ void QbtClient::prepare(QNetworkRequest &req) const
     req.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("QtMagnet/1.0"));
     req.setRawHeader("Referer", _base.toUtf8());
     req.setRawHeader("Origin", _base.toUtf8());
+    if (_cfg.authMode == QLatin1String("apikey") && !_cfg.getApiKey().isEmpty()) {
+        const QByteArray keyBytes = _cfg.getApiKey().toUtf8();
+        req.setRawHeader("X-Api-Key", keyBytes);
+        req.setRawHeader("Authorization", "Bearer " + keyBytes);
+    }
 }
 
 void QbtClient::setBasicAuth(QNetworkRequest &req) const
@@ -276,6 +283,14 @@ bool QbtClient::verifyAuthenticated()
 
 void QbtClient::loginQBittorrent()
 {
+    if (_cfg.authMode == QLatin1String("apikey") && !_cfg.getApiKey().isEmpty()) {
+        if (verifyAuthenticated()) {
+            trace(QStringLiteral("Authenticated to qBittorrent via API key successfully."));
+            return;
+        }
+        throw QbtException(QCoreApplication::translate("QbtClient", "API key authentication failed."), 401, QString());
+    }
+
     const QString pass = _cfg.getPassword();
     const QString form = QStringLiteral("username=") + esc(_cfg.username) + QStringLiteral("&password=") + esc(pass);
 
@@ -815,9 +830,14 @@ std::optional<TorrentInfo> QbtClient::infoOne(const QString &hash)
 QSet<QString> QbtClient::allHashes()
 {
     QSet<QString> set;
-    for (const TorrentInfo &t : info(QString()))
+    for (const TorrentInfo &t : info(QString())) {
         if (!t.hash.isEmpty())
             set.insert(t.hash.toLower());
+        if (!t.infoHashV1.isEmpty())
+            set.insert(t.infoHashV1.toLower());
+        if (!t.infoHashV2.isEmpty())
+            set.insert(t.infoHashV2.toLower());
+    }
     return set;
 }
 
@@ -826,6 +846,18 @@ void QbtClient::addMagnet(const QString &magnet, bool addStopped, bool stopAfter
                           const QString &tags, const QString &contentLayout)
 {
     if (detectedType == ClientType::Aria2) {
+        if (MagnetLink::looksLikeMagnet(magnet)) {
+            try {
+                MagnetLink m = MagnetLink::parse(magnet);
+                if (m.version == TorrentVersion::V2) {
+                    throw QbtException(QCoreApplication::translate("QbtClient",
+                        "Aria2 does not support pure BitTorrent v2 (BEP 52). Please configure qBittorrent or Transmission in Settings."));
+                }
+            } catch (const QbtException &) {
+                throw;
+            } catch (...) {}
+        }
+
         QJsonArray params;
         QJsonArray uris;
         uris.append(magnet);
@@ -841,6 +873,15 @@ void QbtClient::addMagnet(const QString &magnet, bool addStopped, bool stopAfter
         QJsonValue res = execAria2Rpc(QStringLiteral("aria2.addUri"), params);
         QString gid = res.toString();
         if (!gid.isEmpty()) {
+            if (MagnetLink::looksLikeMagnet(magnet)) {
+                try {
+                    MagnetLink m = MagnetLink::parse(magnet);
+                    if (!m.hash.isEmpty())
+                        _hashToGid[m.hash.toLower()] = gid;
+                    if (!m.hashV2.isEmpty())
+                        _hashToGid[m.hashV2.toLower()] = gid;
+                } catch (...) {}
+            }
             try {
                 QJsonArray stParams;
                 stParams.append(gid);
@@ -908,6 +949,17 @@ void QbtClient::addTorrentFile(const QByteArray &torrentData, const QString &fil
                               const QString &tags, const QString &contentLayout)
 {
     if (detectedType == ClientType::Aria2) {
+        TorrentFileData tf;
+        try { tf = TorrentFileData::parse(torrentData, fileName); } catch (...) {}
+        if (tf.version == TorrentVersion::V2) {
+            throw QbtException(QCoreApplication::translate("QbtClient",
+                "Aria2 does not support pure BitTorrent v2 (BEP 52). Please configure qBittorrent or Transmission in Settings."));
+        }
+        if (tf.version == TorrentVersion::Hybrid) {
+            addMagnet(tf.toMagnetUri(), addStopped, stopAfterMetadata, savepath, category, tags, contentLayout);
+            return;
+        }
+
         QJsonArray params;
         params.append(QString::fromLatin1(torrentData.toBase64()));
         params.append(QJsonArray()); // uris
@@ -922,6 +974,8 @@ void QbtClient::addTorrentFile(const QByteArray &torrentData, const QString &fil
         QJsonValue res = execAria2Rpc(QStringLiteral("aria2.addTorrent"), params);
         QString gid = res.toString();
         if (!gid.isEmpty()) {
+            if (!tf.hash.isEmpty())
+                _hashToGid[tf.hash.toLower()] = gid;
             try {
                 QJsonArray stParams;
                 stParams.append(gid);
@@ -1404,6 +1458,60 @@ void QbtClient::addTags(const QString &hash, const QString &tags)
     postForm(QStringLiteral("/api/v2/torrents/addTags"), form);
 }
 
+void QbtClient::removeTags(const QString &hash, const QString &tags)
+{
+    if (detectedType == ClientType::Transmission || detectedType == ClientType::Aria2)
+        return;
+
+    const QString form = QStringLiteral("hashes=") + esc(hash) + QStringLiteral("&tags=") + esc(tags);
+    postForm(QStringLiteral("/api/v2/torrents/removeTags"), form);
+}
+
+void QbtClient::setTags(const QString &hash, const QString &newTags, const QString &oldTags)
+{
+    if (detectedType == ClientType::Transmission) {
+        const QStringList tagList = newTags.split(QLatin1Char(','), Qt::SkipEmptyParts);
+        QJsonObject args;
+        args[QStringLiteral("ids")] = QJsonArray{hash};
+        QJsonArray labelsArr;
+        for (const QString &t : tagList) {
+            const QString trimmed = t.trimmed();
+            if (!trimmed.isEmpty())
+                labelsArr.append(trimmed);
+        }
+        args[QStringLiteral("labels")] = labelsArr;
+        execTransmissionRpc(QStringLiteral("torrent-set"), args);
+        return;
+    }
+    if (detectedType == ClientType::Aria2)
+        return;
+
+    QSet<QString> oldSet;
+    for (const QString &t : oldTags.split(QLatin1Char(','), Qt::SkipEmptyParts))
+        oldSet.insert(t.trimmed());
+
+    QSet<QString> newSet;
+    for (const QString &t : newTags.split(QLatin1Char(','), Qt::SkipEmptyParts))
+        newSet.insert(t.trimmed());
+
+    QStringList toRemove;
+    for (const QString &t : oldSet) {
+        if (!newSet.contains(t))
+            toRemove.append(t);
+    }
+
+    QStringList toAdd;
+    for (const QString &t : newSet) {
+        if (!oldSet.contains(t))
+            toAdd.append(t);
+    }
+
+    if (!toRemove.isEmpty())
+        removeTags(hash, toRemove.join(QLatin1Char(',')));
+    if (!toAdd.isEmpty())
+        addTags(hash, toAdd.join(QLatin1Char(',')));
+}
+
 void QbtClient::addTrackers(const QString &hash, const QStringList &trackers)
 {
     if (trackers.isEmpty())
@@ -1558,7 +1666,8 @@ void QbtClient::toggleFirstLastPiecePrio(const QString &hash)
 }
 
 QString QbtClient::resolveHash(const QString &expectedHash, const QSet<QString> &before,
-                                int timeoutMs, const std::function<bool()> &cancelled)
+                                int timeoutMs, const std::function<bool()> &cancelled,
+                                const QString &expectedHashV2)
 {
     QElapsedTimer sw;
     sw.start();
@@ -1570,12 +1679,34 @@ QString QbtClient::resolveHash(const QString &expectedHash, const QSet<QString> 
             const auto t = infoOne(expectedHash);
             if (t && !t->hash.isEmpty())
                 return t->hash;
-        } else {
-            for (const TorrentInfo &t : info(QString())) {
-                if (!before.contains(t.hash.toLower())) {
-                    trace(QStringLiteral("Identified hash by list diff: %1").arg(t.hash));
+        }
+        if (!expectedHashV2.isEmpty()) {
+            const auto t2 = infoOne(expectedHashV2);
+            if (t2 && !t2->hash.isEmpty())
+                return t2->hash;
+        }
+
+        for (const TorrentInfo &t : info(QString())) {
+            const QString hLower = t.hash.toLower();
+            const QString v1Lower = t.infoHashV1.toLower();
+            const QString v2Lower = t.infoHashV2.toLower();
+
+            if (!expectedHash.isEmpty()) {
+                const QString expLower = expectedHash.toLower();
+                if (hLower == expLower || v1Lower == expLower || v2Lower == expLower)
                     return t.hash;
-                }
+            }
+            if (!expectedHashV2.isEmpty()) {
+                const QString exp2Lower = expectedHashV2.toLower();
+                if (hLower == exp2Lower || v1Lower == exp2Lower || v2Lower == exp2Lower)
+                    return t.hash;
+            }
+
+            if (!before.contains(hLower) &&
+                (v1Lower.isEmpty() || !before.contains(v1Lower)) &&
+                (v2Lower.isEmpty() || !before.contains(v2Lower))) {
+                trace(QStringLiteral("Identified hash by list diff: %1").arg(t.hash));
+                return t.hash;
             }
         }
 

@@ -129,7 +129,8 @@ void Worker::doPrepare()
         QString resolved = _client->resolveHash(
             targetHash, before,
             qMax(8000, _cfg.requestTimeoutSec * 1000),
-            [this]() { return wasCancelled(); });
+            [this]() { return wasCancelled(); },
+            _payload.hashV2());
 
         if (resolved.isEmpty()) {
             if (wasCancelled()) { emit prepareFinished(false, QString()); return; }
@@ -241,10 +242,10 @@ void Worker::doApply()
             catch (const QbtException &ex) { Log::write(QStringLiteral("setCategory: %1").arg(ex.message)); }
         }
 
-        if (!p.tags.isEmpty()) {
+        if (p.tags != p.initialTags) {
             emit status(tr("Setting tags..."));
-            try { _client->addTags(p.hash, p.tags); }
-            catch (const QbtException &ex) { Log::write(QStringLiteral("addTags: %1").arg(ex.message)); }
+            try { _client->setTags(p.hash, p.tags, p.initialTags); }
+            catch (const QbtException &ex) { Log::write(QStringLiteral("setTags: %1").arg(ex.message)); }
         }
 
         if (!p.savePath.isEmpty()

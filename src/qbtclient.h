@@ -38,6 +38,7 @@ struct TorrentFile {
 
 struct TorrentInfo {
     QString hash, name, state, savePath, category, tags;
+    QString infoHashV1, infoHashV2;
     bool    forceStart = false, sequentialDownload = false, firstLastPiecePrio = false, autoTmm = false;
     qint64  size = 0, totalSize = 0;
     double  progress = 0;
@@ -99,6 +100,8 @@ public:
     void setLocation(const QString &hash, const QString &location);
     void setCategory(const QString &hash, const QString &category);
     void addTags(const QString &hash, const QString &tags);
+    void removeTags(const QString &hash, const QString &tags);
+    void setTags(const QString &hash, const QString &newTags, const QString &oldTags = QString());
     void addTrackers(const QString &hash, const QStringList &trackers);
     void rename(const QString &hash, const QString &name);
     void setAutoManagement(const QString &hash, bool enable);
@@ -108,7 +111,8 @@ public:
     void toggleFirstLastPiecePrio(const QString &hash);
 
     QString resolveHash(const QString &expectedHash, const QSet<QString> &before,
-                        int timeoutMs, const std::function<bool()> &cancelled);
+                        int timeoutMs, const std::function<bool()> &cancelled,
+                        const QString &expectedHashV2 = QString());
     QVector<TorrentFile> waitForMetadata(const QString &hash, int timeoutSec,
                                          const std::function<void(int)> &onTick,
                                          const std::function<bool()> &cancelled, bool nudgeStart);

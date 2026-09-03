@@ -9,6 +9,9 @@ public:
     QString username;
     QString passwordEnc;
     QString password;
+    QString authMode          = QStringLiteral("password");
+    QString apiKeyEnc;
+    QString apiKey;
     bool    quickMode         = false;
     int     forceStartDelayMs = 5000;
     int     metadataTimeoutSec = 120;
@@ -30,8 +33,12 @@ public:
     QString getPassword() const;
     void    setPassword(const QString &plain);
 
+    QString getApiKey() const;
+    void    setApiKey(const QString &plain);
+
     static Config load();
     void save() const;
+
 
     static QString dirPath();
     static QString filePath();

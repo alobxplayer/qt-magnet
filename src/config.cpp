@@ -43,6 +43,28 @@ void Config::setPassword(const QString &plain)
     passwordEnc = SecretStore::store(username, plain);
 }
 
+QString Config::getApiKey() const
+{
+    if (!apiKey.isEmpty())
+        return apiKey;
+    if (apiKeyEnc.isEmpty())
+        return QString();
+    return SecretStore::load(QStringLiteral("apikey"), apiKeyEnc);
+}
+
+void Config::setApiKey(const QString &plain)
+{
+    apiKey.clear();
+    if (plain.isEmpty()) {
+        if (!apiKeyEnc.isEmpty())
+            SecretStore::clear(QStringLiteral("apikey"), apiKeyEnc);
+        apiKeyEnc.clear();
+        return;
+    }
+    apiKeyEnc = SecretStore::store(QStringLiteral("apikey"), plain);
+}
+
+
 QString Config::dirPath()
 {
     QString dir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
@@ -80,6 +102,9 @@ Config Config::load()
     c.username           = o.value(QStringLiteral("username")).toString(c.username);
     c.passwordEnc        = o.value(QStringLiteral("passwordEnc")).toString(c.passwordEnc);
     c.password           = o.value(QStringLiteral("password")).toString(c.password);
+    c.authMode           = o.value(QStringLiteral("authMode")).toString(c.authMode);
+    c.apiKeyEnc          = o.value(QStringLiteral("apiKeyEnc")).toString(c.apiKeyEnc);
+    c.apiKey             = o.value(QStringLiteral("apiKey")).toString(c.apiKey);
     c.quickMode          = o.value(QStringLiteral("quickMode")).toBool(c.quickMode);
     c.forceStartDelayMs  = qBound(0, o.value(QStringLiteral("forceStartDelayMs")).toInt(c.forceStartDelayMs), 60000);
     c.metadataTimeoutSec = qBound(5, o.value(QStringLiteral("metadataTimeoutSec")).toInt(c.metadataTimeoutSec), 3600);
@@ -107,6 +132,10 @@ void Config::save() const
     o[QStringLiteral("passwordEnc")]        = passwordEnc;
     if (!password.isEmpty())
         o[QStringLiteral("password")]       = password;
+    o[QStringLiteral("authMode")]           = authMode;
+    o[QStringLiteral("apiKeyEnc")]          = apiKeyEnc;
+    if (!apiKey.isEmpty())
+        o[QStringLiteral("apiKey")]         = apiKey;
     o[QStringLiteral("quickMode")]          = quickMode;
     o[QStringLiteral("forceStartDelayMs")]  = forceStartDelayMs;
     o[QStringLiteral("metadataTimeoutSec")] = metadataTimeoutSec;
