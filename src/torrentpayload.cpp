@@ -5,6 +5,32 @@ QString TorrentPayload::hash() const
     return isFile() ? torrentData.hash : magnet.hash;
 }
 
+QString TorrentPayload::hashV2() const
+{
+    return isFile() ? torrentData.hashV2 : magnet.hashV2;
+}
+
+TorrentVersion TorrentPayload::version() const
+{
+    return isFile() ? torrentData.version : magnet.version;
+}
+
+QString TorrentPayload::versionString() const
+{
+    return isFile() ? torrentData.versionString() : magnet.versionString();
+}
+
+QSet<int> TorrentPayload::selectedIndices() const
+{
+    return isMagnet() ? magnet.selectedIndices : QSet<int>();
+}
+
+QString TorrentPayload::toMagnetUri() const
+{
+    return isFile() ? torrentData.toMagnetUri() : magnet.raw;
+}
+
+
 QString TorrentPayload::displayName() const
 {
     return isFile() ? torrentData.displayName : magnet.displayName;

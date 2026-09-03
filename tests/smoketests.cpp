@@ -178,6 +178,71 @@ static void runUnitTests()
     check(TorrentFileData::looksLikeTorrent(QStringLiteral("file:///home/user/test.torrent")), QStringLiteral("looksLikeTorrent file://"));
     check(!TorrentFileData::looksLikeTorrent(QStringLiteral("magnet:?xt=urn:btih:...")), QStringLiteral("looksLikeTorrent magnet -> false"));
 
+    // --- Pure BitTorrent v2 (BEP 52) Torrent ---
+    QByteArray v2TorrentBytes = QByteArrayLiteral(
+        "d8:announce18:http://tr1.org/ann"
+        "4:infod"
+          "9:file treed"
+            "4:docs"
+              "d8:read.txtd0:d6:lengthi1024e11:pieces root32:01234567890123456789012345678901eee"
+            "8:test.isod0:d6:lengthi2048e11:pieces root32:abcdefabcdefabcdefabcdefabcdefabeee"
+          "e"
+          "12:meta versioni2e"
+          "4:name10:v2_torrent"
+          "12:piece lengthi16384e"
+        "ee"
+    );
+    auto tfV2 = TorrentFileData::parse(v2TorrentBytes, QStringLiteral("/tmp/v2.torrent"));
+    check(tfV2.version == TorrentVersion::V2, QStringLiteral("TorrentFileData: pure v2 detected"));
+    eq(tfV2.versionString(), QStringLiteral("v2"), QStringLiteral("TorrentFileData: versionString v2"));
+    check(tfV2.files.size() == 2, QStringLiteral("TorrentFileData: 2 files extracted from file tree"));
+    if (tfV2.files.size() == 2) {
+        eq(tfV2.files[0].name, QStringLiteral("docs/read.txt"), QStringLiteral("v2 file 0 path"));
+        check(tfV2.files[0].size == 1024, QStringLiteral("v2 file 0 size"));
+        eq(tfV2.files[1].name, QStringLiteral("test.iso"), QStringLiteral("v2 file 1 path"));
+        check(tfV2.files[1].size == 2048, QStringLiteral("v2 file 1 size"));
+    }
+    check(tfV2.totalSize == 3072, QStringLiteral("TorrentFileData: v2 totalSize matches"));
+    check(!tfV2.hashV2.isEmpty() && tfV2.hashV2.length() == 64 && isHex(tfV2.hashV2), QStringLiteral("TorrentFileData: 64-char SHA256 hashV2"));
+    eq(tfV2.hash, tfV2.hashV2, QStringLiteral("TorrentFileData: v2 primary hash equals hashV2"));
+
+    // --- Hybrid v1+v2 with BEP 47/52 padding files ---
+    QByteArray hybridBytes = QByteArrayLiteral(
+        "d8:announce18:http://tr1.org/ann"
+        "4:infod"
+          "9:file treed"
+            "4:docs"
+              "d8:read.txtd0:d6:lengthi1024e11:pieces root32:01234567890123456789012345678901eee"
+            "4:.padd9:pad_16384d0:d4:attr1:p6:lengthi15360eeee"
+          "e"
+          "12:meta versioni2e"
+          "4:name14:hybrid_torrent"
+          "12:piece lengthi16384e"
+          "6:pieces20:11111111111111111111"
+        "ee"
+    );
+    auto tfHybrid = TorrentFileData::parse(hybridBytes);
+    check(tfHybrid.version == TorrentVersion::Hybrid, QStringLiteral("TorrentFileData: hybrid detected"));
+    eq(tfHybrid.versionString(), QStringLiteral("Hybrid (v1+v2)"), QStringLiteral("TorrentFileData: versionString hybrid"));
+    check(tfHybrid.files.size() == 1, QStringLiteral("TorrentFileData: padding file filtered out"));
+    check(tfHybrid.totalSize == 1024, QStringLiteral("TorrentFileData: totalSize excludes padding"));
+    check(!tfHybrid.hash.isEmpty() && tfHybrid.hash.length() == 40, QStringLiteral("TorrentFileData: hybrid v1 hash 40 chars"));
+    check(!tfHybrid.hashV2.isEmpty() && tfHybrid.hashV2.length() == 64, QStringLiteral("TorrentFileData: hybrid v2 hash 64 chars"));
+    check(!tfHybrid.toMagnetUri().isEmpty(), QStringLiteral("TorrentFileData: toMagnetUri generates valid magnet"));
+
+    // --- BEP 53 select-only parsing in MagnetLink ---
+    auto soSet = MagnetLink::parseSelectOnly(QStringLiteral("0, 2-4, 7, invalid, 10-8"));
+    check(soSet.size() == 5, QStringLiteral("BEP 53 parseSelectOnly size == 5"));
+    check(soSet.contains(0) && soSet.contains(2) && soSet.contains(3) && soSet.contains(4) && soSet.contains(7),
+          QStringLiteral("BEP 53 contains valid parsed indices"));
+
+    auto mSo = MagnetLink::parse(QStringLiteral("magnet:?xt=urn:btih:c12fe1c06bba254a9dc9f519b335aa7c1367a88a&so=1,3-5"));
+    check(mSo.selectedIndices.size() == 4, QStringLiteral("MagnetLink so parsed into selectedIndices"));
+    check(mSo.selectedIndices.contains(1) && mSo.selectedIndices.contains(3) && mSo.selectedIndices.contains(4) && mSo.selectedIndices.contains(5),
+          QStringLiteral("mSo selectedIndices verified"));
+    eq(mSo.versionString(), QStringLiteral("v1"), QStringLiteral("mSo versionString v1"));
+
+
     auto pMag = TorrentPayload::fromMagnet(QStringLiteral("magnet:?xt=urn:btih:c12fe1c06bba254a9dc9f519b335aa7c1367a88a&dn=Payload+Test"));
     check(pMag.isMagnet() && !pMag.isFile(), QStringLiteral("TorrentPayload fromMagnet kind"));
     eq(pMag.hash(), QStringLiteral("c12fe1c06bba254a9dc9f519b335aa7c1367a88a"), QStringLiteral("TorrentPayload magnet hash"));

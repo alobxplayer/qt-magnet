@@ -133,7 +133,70 @@ private:
     }
 };
 
+void traverseFileTree(const BencodeParser::Value &node,
+                      const QStringList &pathSegments,
+                      QVector<TorrentFile> &files,
+                      qint64 &totalSize,
+                      int &fileIndex)
+{
+    if (node.type != BencodeParser::Value::Dict)
+        return;
+
+    const auto *leafVal = node.dictGet("");
+    if (leafVal && leafVal->type == BencodeParser::Value::Dict) {
+        const auto *lenVal = leafVal->dictGet("length");
+        if (lenVal && lenVal->type == BencodeParser::Value::Integer) {
+            const auto *attrVal = leafVal->dictGet("attr");
+            QString attr = attrVal ? attrVal->asUtf8() : QString();
+            QString relPath = pathSegments.join(QLatin1Char('/'));
+            bool isPadding = attr.contains(QLatin1Char('p')) || relPath.contains(QLatin1String(".pad/")) || relPath.startsWith(QLatin1String(".pad"));
+            if (!isPadding) {
+                TorrentFile tf;
+                tf.index = fileIndex++;
+                tf.name = relPath.isEmpty() ? QStringLiteral("file_%1").arg(tf.index) : relPath;
+                tf.size = lenVal->intVal;
+                tf.priority = 1;
+                tf.progress = 0.0;
+                files.append(tf);
+                totalSize += tf.size;
+            }
+        }
+        return;
+    }
+
+    for (const auto &pair : node.dictVal) {
+        if (pair.first.isEmpty())
+            continue;
+        QString name = QString::fromUtf8(pair.first);
+        QStringList nextPath = pathSegments;
+        nextPath.append(name);
+        traverseFileTree(pair.second, nextPath, files, totalSize, fileIndex);
+    }
+}
+
 } // namespace
+
+QString TorrentFileData::versionString() const
+{
+    switch (version) {
+    case TorrentVersion::V1:     return QStringLiteral("v1");
+    case TorrentVersion::V2:     return QStringLiteral("v2");
+    case TorrentVersion::Hybrid: return QStringLiteral("Hybrid (v1+v2)");
+    }
+    return QStringLiteral("v1");
+}
+
+QString TorrentFileData::toMagnetUri() const
+{
+    QString uri = QStringLiteral("magnet:?xt=urn:btih:") + (isV2() ? hashV2 : hash);
+    if (isHybrid() && !hashV2.isEmpty())
+        uri += QStringLiteral("&xt=urn:btmh:1220") + hashV2;
+    if (!displayName.isEmpty())
+        uri += QStringLiteral("&dn=") + QString::fromLatin1(QUrl::toPercentEncoding(displayName));
+    for (const QString &tr : trackers)
+        uri += QStringLiteral("&tr=") + QString::fromLatin1(QUrl::toPercentEncoding(tr));
+    return uri;
+}
 
 QString TorrentFileData::prettyName() const
 {
@@ -189,6 +252,14 @@ TorrentFileData TorrentFileData::parse(const QByteArray &bytes, const QString &s
     meta.hash = QString::fromLatin1(QCryptographicHash::hash(infoRaw, QCryptographicHash::Sha1).toHex()).toLower();
     meta.hashV2 = QString::fromLatin1(QCryptographicHash::hash(infoRaw, QCryptographicHash::Sha256).toHex()).toLower();
 
+    const auto *metaVerVal = infoVal->dictGet("meta version");
+    if (metaVerVal && metaVerVal->type == BencodeParser::Value::Integer)
+        meta.metaVersion = int(metaVerVal->intVal);
+
+    const auto *pieceLenVal = infoVal->dictGet("piece length");
+    if (pieceLenVal && pieceLenVal->type == BencodeParser::Value::Integer)
+        meta.pieceLength = pieceLenVal->intVal;
+
     const auto *nameUtf8 = infoVal->dictGet("name.utf-8");
     const auto *nameNormal = infoVal->dictGet("name");
     if (nameUtf8 && nameUtf8->type == BencodeParser::Value::String)
@@ -200,56 +271,79 @@ TorrentFileData TorrentFileData::parse(const QByteArray &bytes, const QString &s
     if (comment && comment->type == BencodeParser::Value::String)
         meta.comment = comment->asUtf8();
 
-    const auto *lengthVal = infoVal->dictGet("length");
-    const auto *filesVal = infoVal->dictGet("files");
+    const auto *fileTreeVal = infoVal->dictGet("file tree");
+    const auto *piecesVal = infoVal->dictGet("pieces");
+    bool hasV1Pieces = (piecesVal && piecesVal->type == BencodeParser::Value::String);
+    bool hasFileTree = (fileTreeVal && fileTreeVal->type == BencodeParser::Value::Dict);
 
-    if (lengthVal && lengthVal->type == BencodeParser::Value::Integer) {
-        TorrentFile tf;
-        tf.index = 0;
-        tf.name = meta.displayName.isEmpty() ? QStringLiteral("file") : meta.displayName;
-        tf.size = lengthVal->intVal;
-        tf.priority = 1;
-        tf.progress = 0.0;
-        meta.files.append(tf);
-        meta.totalSize = tf.size;
-    } else if (filesVal && filesVal->type == BencodeParser::Value::List) {
+    if (hasFileTree) {
         int fileIndex = 0;
-        for (const auto &fEntry : filesVal->listVal) {
-            if (fEntry.type != BencodeParser::Value::Dict)
-                continue;
+        traverseFileTree(*fileTreeVal, QStringList(), meta.files, meta.totalSize, fileIndex);
+        if (hasV1Pieces) {
+            meta.version = TorrentVersion::Hybrid;
+        } else {
+            meta.version = TorrentVersion::V2;
+            meta.hash = meta.hashV2;
+        }
+    }
 
-            const auto *fLen = fEntry.dictGet("length");
-            qint64 size = (fLen && fLen->type == BencodeParser::Value::Integer) ? fLen->intVal : 0;
+    if (meta.files.isEmpty()) {
+        meta.version = TorrentVersion::V1;
+        const auto *lengthVal = infoVal->dictGet("length");
+        const auto *filesVal = infoVal->dictGet("files");
 
-            const auto *pathListVal = fEntry.dictGet("path.utf-8");
-            if (!pathListVal || pathListVal->type != BencodeParser::Value::List)
-                pathListVal = fEntry.dictGet("path");
-
-            QStringList pathParts;
-            if (pathListVal && pathListVal->type == BencodeParser::Value::List) {
-                for (const auto &p : pathListVal->listVal) {
-                    if (p.type == BencodeParser::Value::String)
-                        pathParts.append(p.asUtf8());
-                }
-            }
-
-            QString relativePath = pathParts.join(QLatin1Char('/'));
-            if (relativePath.isEmpty())
-                relativePath = QStringLiteral("file_%1").arg(fileIndex);
-
-            QString fullPath = meta.displayName.isEmpty()
-                ? relativePath
-                : (meta.displayName + QLatin1Char('/') + relativePath);
-
+        if (lengthVal && lengthVal->type == BencodeParser::Value::Integer) {
             TorrentFile tf;
-            tf.index = fileIndex++;
-            tf.name = fullPath;
-            tf.size = size;
+            tf.index = 0;
+            tf.name = meta.displayName.isEmpty() ? QStringLiteral("file") : meta.displayName;
+            tf.size = lengthVal->intVal;
             tf.priority = 1;
             tf.progress = 0.0;
-
             meta.files.append(tf);
-            meta.totalSize += size;
+            meta.totalSize = tf.size;
+        } else if (filesVal && filesVal->type == BencodeParser::Value::List) {
+            int fileIndex = 0;
+            for (const auto &fEntry : filesVal->listVal) {
+                if (fEntry.type != BencodeParser::Value::Dict)
+                    continue;
+
+                const auto *fLen = fEntry.dictGet("length");
+                qint64 size = (fLen && fLen->type == BencodeParser::Value::Integer) ? fLen->intVal : 0;
+
+                const auto *pathListVal = fEntry.dictGet("path.utf-8");
+                if (!pathListVal || pathListVal->type != BencodeParser::Value::List)
+                    pathListVal = fEntry.dictGet("path");
+
+                QStringList pathParts;
+                if (pathListVal && pathListVal->type == BencodeParser::Value::List) {
+                    for (const auto &p : pathListVal->listVal) {
+                        if (p.type == BencodeParser::Value::String)
+                            pathParts.append(p.asUtf8());
+                    }
+                }
+
+                QString relativePath = pathParts.join(QLatin1Char('/'));
+                if (relativePath.isEmpty())
+                    relativePath = QStringLiteral("file_%1").arg(fileIndex);
+
+                bool isPadding = relativePath.contains(QLatin1String(".pad/")) || relativePath.startsWith(QLatin1String(".pad"));
+                if (isPadding)
+                    continue;
+
+                QString fullPath = meta.displayName.isEmpty()
+                    ? relativePath
+                    : (meta.displayName + QLatin1Char('/') + relativePath);
+
+                TorrentFile tf;
+                tf.index = fileIndex++;
+                tf.name = fullPath;
+                tf.size = size;
+                tf.priority = 1;
+                tf.progress = 0.0;
+
+                meta.files.append(tf);
+                meta.totalSize += size;
+            }
         }
     }
 

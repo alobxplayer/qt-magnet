@@ -36,19 +36,39 @@ void takeExactTopic(MagnetLink &m, const QString &val)
             hex = raw.toLower();
         else if (raw.length() == 32)
             hex = MagnetLink::base32ToHex(raw);
-        if (!hex.isEmpty())
+        if (!hex.isEmpty()) {
+            if (!m.hashV2.isEmpty()) {
+                m.version = TorrentVersion::Hybrid;
+            } else {
+                m.version = TorrentVersion::V1;
+            }
             m.hash = hex;
+        }
     } else if (val.startsWith(btmh, Qt::CaseInsensitive)) {
         const QString raw = val.mid(btmh.length()).trimmed().toLower();
         if (raw.startsWith(QLatin1String("1220")) && raw.length() == 68 && isHex(raw)) {
             m.hashV2 = raw.mid(4, 64);
-            if (m.hash.isEmpty())
+            if (m.hash.isEmpty()) {
                 m.hash = m.hashV2;
+                m.version = TorrentVersion::V2;
+            } else {
+                m.version = TorrentVersion::Hybrid;
+            }
         }
     }
 }
 
 } // namespace
+
+QString MagnetLink::versionString() const
+{
+    switch (version) {
+    case TorrentVersion::V1:     return QStringLiteral("v1");
+    case TorrentVersion::V2:     return QStringLiteral("v2");
+    case TorrentVersion::Hybrid: return QStringLiteral("Hybrid (v1+v2)");
+    }
+    return QStringLiteral("v1");
+}
 
 QString MagnetLink::prettyName() const
 {
@@ -105,12 +125,42 @@ MagnetLink MagnetLink::parse(const QString &uri)
             const QString tr = val.trimmed();
             if (!tr.isEmpty())
                 m.trackers.append(tr);
+        } else if (key == QLatin1String("so")) {
+            m.selectedIndices = parseSelectOnly(val);
         }
     }
 
     if (m.hash.isEmpty())
         throw std::runtime_error(QCoreApplication::translate("MagnetLink", "No infohash found in magnet link.").toStdString());
     return m;
+}
+
+QSet<int> MagnetLink::parseSelectOnly(const QString &soStr)
+{
+    QSet<int> indices;
+    if (soStr.trimmed().isEmpty())
+        return indices;
+
+    const QStringList tokens = soStr.split(QLatin1Char(','), Qt::SkipEmptyParts);
+    for (const QString &t : tokens) {
+        QString tok = t.trimmed();
+        int dash = tok.indexOf(QLatin1Char('-'));
+        if (dash > 0) {
+            bool ok1 = false, ok2 = false;
+            int start = tok.left(dash).trimmed().toInt(&ok1);
+            int end = tok.mid(dash + 1).trimmed().toInt(&ok2);
+            if (ok1 && ok2 && start >= 0 && start <= end && (end - start) < 10000) {
+                for (int i = start; i <= end; ++i)
+                    indices.insert(i);
+            }
+        } else {
+            bool ok = false;
+            int idx = tok.toInt(&ok);
+            if (ok && idx >= 0)
+                indices.insert(idx);
+        }
+    }
+    return indices;
 }
 
 static inline int base32Val(QChar ch)

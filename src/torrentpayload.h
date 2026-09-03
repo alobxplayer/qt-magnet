@@ -20,6 +20,11 @@ public:
     bool isMagnet() const { return kind == Kind::Magnet; }
 
     QString hash() const;
+    QString hashV2() const;
+    TorrentVersion version() const;
+    QString versionString() const;
+    QSet<int> selectedIndices() const;
+    QString toMagnetUri() const;
     QString displayName() const;
     QString prettyName() const;
     QStringList trackers() const;
@@ -27,3 +32,4 @@ public:
     static TorrentPayload fromMagnet(const QString &uri);
     static TorrentPayload fromFile(const QString &filePath);
 };
+
