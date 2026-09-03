@@ -91,6 +91,8 @@ private:
     Worker *_worker = nullptr;
 
     QLabel *_nameLabel = nullptr;
+    QLabel *_versionBadge = nullptr;
+    QLineEdit *_filterEdit = nullptr;
     QTreeWidget *_tree = nullptr;
     QComboBox *_categoryBox = nullptr;
     QLineEdit *_tagsEdit = nullptr;

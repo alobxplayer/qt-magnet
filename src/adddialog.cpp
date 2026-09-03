@@ -4,11 +4,15 @@
 #include "logger.h"
 #include "worker.h"
 
+#include <QApplication>
 #include <QCloseEvent>
+#include <QFileIconProvider>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QMessageBox>
+#include <QPainter>
+#include <QStyledItemDelegate>
 #include <QVBoxLayout>
 #include <QMap>
 
@@ -17,7 +21,7 @@ static const char *kAppTitle = "qt-magnet";
 namespace {
 constexpr int kColWidthFile     = 300;
 constexpr int kColWidthSize     = 95;
-constexpr int kColWidthProgress = 75;
+constexpr int kColWidthProgress = 85;
 constexpr int kColWidthPriority = 110;
 constexpr int kColWidthIndex    = 50;
 
@@ -26,12 +30,13 @@ public:
     using QTreeWidgetItem::QTreeWidgetItem;
     bool operator<(const QTreeWidgetItem &other) const override {
         int col = treeWidget() ? treeWidget()->sortColumn() : 0;
+        bool isAsc = treeWidget() ? (treeWidget()->header()->sortIndicatorOrder() == Qt::AscendingOrder) : true;
         bool thisIsFile = data(0, IsFileRole).toBool();
         bool otherIsFile = other.data(0, IsFileRole).toBool();
         if (!thisIsFile && otherIsFile)
-            return true;
+            return isAsc;
         if (thisIsFile && !otherIsFile)
-            return false;
+            return !isAsc;
 
         if (col == 1) {
             return data(0, FileSizeRole).toLongLong() < other.data(0, FileSizeRole).toLongLong();
@@ -48,6 +53,65 @@ public:
         return text(col).localeAwareCompare(other.text(col)) < 0;
     }
 };
+
+class ProgressBarDelegate : public QStyledItemDelegate {
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+
+    void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override {
+        QStyleOptionViewItem opt = option;
+        initStyleOption(&opt, index);
+
+        bool isFile = index.data(IsFileRole).toBool();
+        if (!isFile) {
+            QStyledItemDelegate::paint(painter, option, index);
+            return;
+        }
+
+        double prog = index.data(ProgressRole).toDouble();
+        if (prog < 0.0) prog = 0.0;
+        if (prog > 1.0) prog = 1.0;
+
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing, true);
+
+        if (opt.state & QStyle::State_Selected) {
+            painter->fillRect(opt.rect, opt.palette.highlight());
+        }
+
+        QRect barRect = opt.rect.adjusted(6, 4, -6, -4);
+        if (barRect.width() > 10 && barRect.height() > 4) {
+            QColor grooveColor = (opt.state & QStyle::State_Selected)
+                ? opt.palette.highlight().color().darker(130)
+                : opt.palette.color(QPalette::Midlight);
+            painter->setPen(Qt::NoPen);
+            painter->setBrush(grooveColor);
+            painter->drawRoundedRect(barRect, 3, 3);
+
+            int fillWidth = qRound(barRect.width() * prog);
+            if (fillWidth > 0) {
+                QRect fillRect = barRect;
+                fillRect.setWidth(fillWidth);
+                QColor chunkColor = (prog >= 1.0)
+                    ? QColor(46, 160, 67)
+                    : QColor(33, 136, 255);
+                painter->setBrush(chunkColor);
+                painter->drawRoundedRect(fillRect, 3, 3);
+            }
+
+            QString text = QString::number(qRound(prog * 100.0)) + QLatin1Char('%');
+            painter->setFont(opt.font);
+            QColor textColor = (opt.state & QStyle::State_Selected)
+                ? opt.palette.highlightedText().color()
+                : (prog > 0.5 ? Qt::white : opt.palette.text().color());
+            painter->setPen(textColor);
+            painter->drawText(barRect, Qt::AlignCenter, text);
+        }
+
+        painter->restore();
+    }
+};
+
 } // namespace
 
 AddDialog::AddDialog(const Config &cfg, const TorrentPayload &payload, bool quick, QWidget *parent)
@@ -85,6 +149,9 @@ void AddDialog::buildUi()
     auto *mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(0, 0, 0, 0);
 
+    auto *topBar = new QHBoxLayout();
+    topBar->setContentsMargins(12, 10, 12, 2);
+
     _nameLabel = new QLabel(_payload.prettyName(), this);
     _nameLabel->setTextFormat(Qt::PlainText);
     _nameLabel->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
@@ -92,10 +159,53 @@ void AddDialog::buildUi()
     f.setBold(true);
     f.setPointSizeF(f.pointSizeF() + 1.5);
     _nameLabel->setFont(f);
-    _nameLabel->setContentsMargins(12, 10, 12, 4);
     _nameLabel->setWordWrap(true);
     _nameLabel->setMinimumWidth(1);
-    mainLayout->addWidget(_nameLabel);
+    topBar->addWidget(_nameLabel, 1);
+
+    _versionBadge = new QLabel(QStringLiteral("[%1]").arg(_payload.versionString()), this);
+    _versionBadge->setStyleSheet(QStringLiteral(
+        "QLabel { background-color: #2b5b84; color: #ffffff; border-radius: 4px; padding: 2px 7px; font-weight: bold; font-size: 11px; }"));
+    QString tip = QStringLiteral("Protocol: %1\nHash (v1): %2").arg(_payload.versionString(), _payload.hash());
+    if (!_payload.hashV2().isEmpty())
+        tip += QStringLiteral("\nHash (v2): %1").arg(_payload.hashV2());
+    _versionBadge->setToolTip(tip);
+    topBar->addWidget(_versionBadge, 0, Qt::AlignVCenter);
+    mainLayout->addLayout(topBar);
+
+    _filterEdit = new QLineEdit(this);
+    _filterEdit->setPlaceholderText(tr("Filter files..."));
+    _filterEdit->setClearButtonEnabled(true);
+    auto *filterWrap = new QHBoxLayout();
+    filterWrap->setContentsMargins(12, 2, 12, 4);
+    filterWrap->addWidget(_filterEdit);
+    mainLayout->addLayout(filterWrap);
+
+    connect(_filterEdit, &QLineEdit::textChanged, this, [this](const QString &text) {
+        QString filter = text.trimmed();
+        _blockTreeSignals = true;
+        std::function<bool(QTreeWidgetItem *)> filterItem = [&](QTreeWidgetItem *item) -> bool {
+            bool isFile = item->data(0, IsFileRole).toBool();
+            if (isFile) {
+                QString name = item->data(0, BaseNameRole).toString();
+                bool matches = filter.isEmpty() || name.contains(filter, Qt::CaseInsensitive);
+                item->setHidden(!matches);
+                return matches;
+            }
+            bool anyChildVisible = false;
+            for (int c = 0; c < item->childCount(); ++c) {
+                if (filterItem(item->child(c)))
+                    anyChildVisible = true;
+            }
+            item->setHidden(!anyChildVisible);
+            if (anyChildVisible && !filter.isEmpty())
+                item->setExpanded(true);
+            return anyChildVisible;
+        };
+        for (int i = 0; i < _tree->topLevelItemCount(); ++i)
+            filterItem(_tree->topLevelItem(i));
+        _blockTreeSignals = false;
+    });
 
     _tree = new QTreeWidget(this);
     _tree->setHeaderLabels({tr("File"), tr("Size"), tr("Progress"), tr("Priority"), tr("#")});
@@ -104,11 +214,12 @@ void AddDialog::buildUi()
     _tree->header()->setStretchLastSection(false);
     _tree->header()->setContextMenuPolicy(Qt::CustomContextMenu);
     _tree->setSortingEnabled(true);
-    _tree->sortByColumn(0, Qt::AscendingOrder);
     _tree->setRootIsDecorated(true);
     _tree->setAlternatingRowColors(true);
     _tree->setSelectionMode(QAbstractItemView::ExtendedSelection);
     _tree->setContextMenuPolicy(Qt::CustomContextMenu);
+
+    _tree->setItemDelegateForColumn(2, new ProgressBarDelegate(_tree));
 
     _tree->setColumnWidth(0, kColWidthFile);
     _tree->setColumnWidth(1, kColWidthSize);
@@ -118,6 +229,9 @@ void AddDialog::buildUi()
 
     if (!_cfg.treeHeaderState.isEmpty()) {
         _tree->header()->restoreState(QByteArray::fromBase64(_cfg.treeHeaderState.toLatin1()));
+    } else {
+        _tree->header()->moveSection(4, 0);
+        _tree->sortByColumn(4, Qt::AscendingOrder);
     }
 
     connect(_tree->header(), &QHeaderView::customContextMenuRequested, this, &AddDialog::onHeaderContextMenu);
@@ -128,6 +242,15 @@ void AddDialog::buildUi()
             item->setCheckState(0, item->checkState(0) == Qt::Checked ? Qt::Unchecked : Qt::Checked);
     });
     mainLayout->addWidget(_tree, 1);
+
+    _progress = new QProgressBar(this);
+    _progress->setTextVisible(false);
+    _progress->setRange(0, 0);
+    _progress->setMaximumHeight(5);
+    auto *progWrap = new QHBoxLayout();
+    progWrap->setContentsMargins(12, 2, 12, 2);
+    progWrap->addWidget(_progress);
+    mainLayout->addLayout(progWrap);
 
     _treeMenu = new QMenu(this);
     _treeMenu->addAction(tr("Download (Normal)"), this, [this]{ setPriority(1); });
@@ -193,31 +316,31 @@ void AddDialog::buildUi()
     auto *bottomLayout = new QHBoxLayout();
     bottomLayout->setContentsMargins(12, 8, 12, 10);
 
-    auto *statusPanel = new QVBoxLayout();
     _statusLabel = new QLabel(tr("Connecting..."), this);
     _statusLabel->setTextFormat(Qt::PlainText);
-    _progress = new QProgressBar(this);
-    _progress->setTextVisible(false);
-    _progress->setRange(0, 0);
-    statusPanel->addWidget(_statusLabel);
-    statusPanel->addWidget(_progress);
-    bottomLayout->addLayout(statusPanel, 1);
+    bottomLayout->addWidget(_statusLabel, 1, Qt::AlignVCenter | Qt::AlignLeft);
+
+    auto *buttonsLayout = new QHBoxLayout();
+    buttonsLayout->setSpacing(8);
 
     _okButton = new QPushButton(tr("Add"), this);
     _okButton->setEnabled(false);
     _okButton->setDefault(true);
     connect(_okButton, &QPushButton::clicked, this, &AddDialog::onOk);
-    bottomLayout->addWidget(_okButton);
+    buttonsLayout->addWidget(_okButton);
 
     _cancelButton = new QPushButton(tr("Cancel"), this);
     _cancelButton->setAutoDefault(false);
     connect(_cancelButton, &QPushButton::clicked, this, &AddDialog::onCancel);
-    bottomLayout->addWidget(_cancelButton);
+    buttonsLayout->addWidget(_cancelButton);
 
+    bottomLayout->addLayout(buttonsLayout);
     mainLayout->addLayout(bottomLayout);
 
     if (_quick) {
         _tree->hide();
+        if (_filterEdit)
+            _filterEdit->hide();
         options->hide();
         _summaryLabel->hide();
         _okButton->hide();
@@ -362,6 +485,23 @@ void AddDialog::populateInteractive(const QVector<TorrentFile> &files)
 
     _okButton->setEnabled(true);
     _tree->setFocus();
+
+    const QSet<int> selectedIndices = _payload.selectedIndices();
+    if (!selectedIndices.isEmpty() && !files.isEmpty()) {
+        _blockTreeSignals = true;
+        forEachFileInTree(_tree, [&selectedIndices](QTreeWidgetItem *item) {
+            int idx = item->data(0, FileIndexRole).toInt();
+            bool wanted = selectedIndices.contains(idx);
+            item->setCheckState(0, wanted ? Qt::Checked : Qt::Unchecked);
+            int newPrio = wanted ? 1 : 0;
+            item->setData(0, PriorityRole, newPrio);
+            updateFileText(item);
+        });
+        for (int i = 0; i < _tree->topLevelItemCount(); ++i)
+            refreshAncestors(_tree->topLevelItem(i));
+        _blockTreeSignals = false;
+    }
+
     updateSummary();
 }
 
@@ -371,6 +511,10 @@ void AddDialog::buildTree(const QVector<TorrentFile> &files)
     _tree->setSortingEnabled(false);
     _tree->clear();
     QMap<QString, QTreeWidgetItem *> folders;
+
+    QFileIconProvider iconProvider;
+    QIcon folderIcon = QApplication::style()->standardIcon(QStyle::SP_DirIcon);
+    QIcon fallbackFileIcon = QApplication::style()->standardIcon(QStyle::SP_FileIcon);
 
     for (const TorrentFile &f : files) {
         QString path = f.name;
@@ -399,6 +543,11 @@ void AddDialog::buildTree(const QVector<TorrentFile> &files)
                 item->setData(0, BaseNameRole, parts[i]);
                 item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
                 item->setCheckState(0, f.priority == 0 ? Qt::Unchecked : Qt::Checked);
+
+                QFileInfo fi(parts[i]);
+                QIcon fiIcon = iconProvider.icon(fi);
+                item->setIcon(0, fiIcon.isNull() ? fallbackFileIcon : fiIcon);
+
                 if (parent)
                     parent->addChild(item);
                 else
@@ -413,6 +562,7 @@ void AddDialog::buildTree(const QVector<TorrentFile> &files)
                     folder->setData(0, BaseNameRole, parts[i]);
                     folder->setFlags(folder->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsAutoTristate);
                     folder->setCheckState(0, Qt::Checked);
+                    folder->setIcon(0, folderIcon);
                     if (parent)
                         parent->addChild(folder);
                     else
@@ -656,6 +806,14 @@ void AddDialog::updateFileText(QTreeWidgetItem *item)
     item->setText(2, prog <= 0.0 ? QStringLiteral("0%") : QString::number(qRound(prog * 100.0)) + QLatin1Char('%'));
     item->setText(3, Format::priorityName(prio));
     item->setText(4, QString::number(idx + 1));
+
+    if (prio == 0) {
+        item->setForeground(3, QBrush(QColor(140, 140, 140)));
+    } else if (prio >= 6) {
+        item->setForeground(3, QBrush(QColor(220, 120, 0)));
+    } else {
+        item->setData(3, Qt::ForegroundRole, QVariant());
+    }
 }
 
 void AddDialog::forEachFile(QTreeWidgetItem *item, const std::function<void(QTreeWidgetItem *)> &fn)
