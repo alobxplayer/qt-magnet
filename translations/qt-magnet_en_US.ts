@@ -4,212 +4,212 @@
 <context>
     <name>AddDialog</name>
     <message>
-        <location filename="../src/adddialog.cpp" line="211"/>
+        <location filename="../src/adddialog.cpp" line="222"/>
         <source>File</source>
         <translation>File</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="256"/>
+        <location filename="../src/adddialog.cpp" line="273"/>
         <source>Download (Normal)</source>
         <translation>Download (Normal)</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="257"/>
+        <location filename="../src/adddialog.cpp" line="274"/>
         <source>High</source>
         <translation>High</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="258"/>
+        <location filename="../src/adddialog.cpp" line="275"/>
         <source>Maximum</source>
         <translation>Maximum</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="260"/>
+        <location filename="../src/adddialog.cpp" line="277"/>
         <source>Do not download</source>
         <translation>Do not download</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="262"/>
+        <location filename="../src/adddialog.cpp" line="279"/>
         <source>Check all</source>
         <translation>Check all</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="263"/>
+        <location filename="../src/adddialog.cpp" line="280"/>
         <source>Uncheck all</source>
         <translation>Uncheck all</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="298"/>
+        <location filename="../src/adddialog.cpp" line="315"/>
         <source>Force start</source>
         <translation>Force start</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="319"/>
+        <location filename="../src/adddialog.cpp" line="336"/>
         <source>Connecting...</source>
         <translation>Connecting...</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="326"/>
-        <location filename="../src/adddialog.cpp" line="474"/>
+        <location filename="../src/adddialog.cpp" line="343"/>
+        <location filename="../src/adddialog.cpp" line="495"/>
         <source>Add</source>
         <translation>Add</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="332"/>
-        <location filename="../src/adddialog.cpp" line="441"/>
+        <location filename="../src/adddialog.cpp" line="349"/>
+        <location filename="../src/adddialog.cpp" line="458"/>
         <source>Cancel</source>
         <translation>Cancel</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="379"/>
-        <location filename="../src/adddialog.cpp" line="395"/>
-        <location filename="../src/adddialog.cpp" line="421"/>
+        <location filename="../src/adddialog.cpp" line="396"/>
+        <location filename="../src/adddialog.cpp" line="412"/>
+        <location filename="../src/adddialog.cpp" line="438"/>
         <source>Close</source>
         <translation>Close</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="347"/>
+        <location filename="../src/adddialog.cpp" line="364"/>
         <source>qt-magnet - Quick Mode</source>
         <translation>qt-magnet - Quick Mode</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="169"/>
+        <location filename="../src/adddialog.cpp" line="180"/>
         <source>Protocol: %1
 Hash (v1): %2</source>
         <translation>Protocol: %1
 Hash (v1): %2</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="171"/>
+        <location filename="../src/adddialog.cpp" line="182"/>
         <source>
 Hash (v2): %1</source>
         <translation>
 Hash (v2): %1</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="177"/>
+        <location filename="../src/adddialog.cpp" line="188"/>
         <source>Filter files...</source>
         <translation>Filter files...</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="211"/>
+        <location filename="../src/adddialog.cpp" line="222"/>
         <source>Size</source>
         <translation>Size</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="211"/>
+        <location filename="../src/adddialog.cpp" line="222"/>
         <source>Priority</source>
         <translation>Priority</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="211"/>
+        <location filename="../src/adddialog.cpp" line="222"/>
         <source>Progress</source>
         <translation>Progress</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="211"/>
+        <location filename="../src/adddialog.cpp" line="222"/>
         <source>#</source>
         <translation>#</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="264"/>
+        <location filename="../src/adddialog.cpp" line="281"/>
         <source>Invert check</source>
         <translation>Invert check</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="275"/>
+        <location filename="../src/adddialog.cpp" line="292"/>
         <source>Expand all</source>
         <translation>Expand all</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="276"/>
+        <location filename="../src/adddialog.cpp" line="293"/>
         <source>Collapse all</source>
         <translation>Collapse all</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="291"/>
+        <location filename="../src/adddialog.cpp" line="308"/>
         <source>Select or type category</source>
         <translation>Select or type category</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="293"/>
+        <location filename="../src/adddialog.cpp" line="310"/>
         <source>tag1, tag2</source>
         <translation>tag1, tag2</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="296"/>
+        <location filename="../src/adddialog.cpp" line="313"/>
         <source>Leave empty for default</source>
         <translation>Leave empty for default</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="299"/>
+        <location filename="../src/adddialog.cpp" line="316"/>
         <source>Start downloading immediately, bypassing queue limits</source>
         <translation>Start downloading immediately, bypassing queue limits</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="302"/>
+        <location filename="../src/adddialog.cpp" line="319"/>
         <source>&amp;Category:</source>
         <translation>&amp;Category:</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="304"/>
+        <location filename="../src/adddialog.cpp" line="321"/>
         <source>&amp;Tags:</source>
         <translation>&amp;Tags:</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="306"/>
+        <location filename="../src/adddialog.cpp" line="323"/>
         <source>&amp;Save path:</source>
         <translation>&amp;Save path:</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="394"/>
-        <location filename="../src/adddialog.cpp" line="419"/>
+        <location filename="../src/adddialog.cpp" line="411"/>
+        <location filename="../src/adddialog.cpp" line="436"/>
         <source>Done.</source>
         <translation>Done.</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="394"/>
+        <location filename="../src/adddialog.cpp" line="411"/>
         <source>Failed to force start.</source>
         <translation>Failed to force start.</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="419"/>
+        <location filename="../src/adddialog.cpp" line="436"/>
         <source>Done (status unverified).</source>
         <translation>Done (status unverified).</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="463"/>
+        <location filename="../src/adddialog.cpp" line="484"/>
         <source>Update</source>
         <translation>Update</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="465"/>
+        <location filename="../src/adddialog.cpp" line="486"/>
         <source>Torrent already exists in client.</source>
         <translation>Torrent already exists in client.</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="472"/>
+        <location filename="../src/adddialog.cpp" line="493"/>
         <source>Torrent already exists. Trackers and settings updated.</source>
         <translation>Torrent already exists. Trackers and settings updated.</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="476"/>
+        <location filename="../src/adddialog.cpp" line="497"/>
         <source>Metadata timeout. Adding without file list.</source>
         <translation>Metadata timeout. Adding without file list.</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="466"/>
-        <location filename="../src/adddialog.cpp" line="477"/>
+        <location filename="../src/adddialog.cpp" line="487"/>
+        <location filename="../src/adddialog.cpp" line="498"/>
         <source>Files unavailable.</source>
         <translation>Files unavailable.</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="483"/>
+        <location filename="../src/adddialog.cpp" line="504"/>
         <source>Metadata received.</source>
         <translation>Metadata received.</translation>
     </message>
     <message numerus="yes">
-        <location filename="../src/adddialog.cpp" line="609"/>
+        <location filename="../src/adddialog.cpp" line="645"/>
         <source>%n file(s)</source>
         <translation>
             <numerusform>%n file</numerusform>
@@ -217,47 +217,47 @@ Hash (v2): %1</translation>
         </translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="621"/>
+        <location filename="../src/adddialog.cpp" line="658"/>
         <source>Columns</source>
         <translation>Columns</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="643"/>
+        <location filename="../src/adddialog.cpp" line="682"/>
         <source>Reset columns</source>
         <translation>Reset columns</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="847"/>
+        <location filename="../src/adddialog.cpp" line="907"/>
         <source>Selected %1 / %2 (%3 / %4 files)</source>
         <translation>Selected %1 / %2 (%3 / %4 files)</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="875"/>
+        <location filename="../src/adddialog.cpp" line="935"/>
         <source>No files selected.</source>
         <translation>No files selected.</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="884"/>
+        <location filename="../src/adddialog.cpp" line="944"/>
         <source>Adding torrent...</source>
         <translation>Adding torrent...</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="884"/>
+        <location filename="../src/adddialog.cpp" line="944"/>
         <source>Updating torrent...</source>
         <translation>Updating torrent...</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="924"/>
+        <location filename="../src/adddialog.cpp" line="984"/>
         <source>Cancelling...</source>
         <translation>Cancelling...</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="941"/>
+        <location filename="../src/adddialog.cpp" line="1001"/>
         <source>Deleting torrent...</source>
         <translation>Deleting torrent...</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="1005"/>
+        <location filename="../src/adddialog.cpp" line="1065"/>
         <source>Error: %1</source>
         <translation>Error: %1</translation>
     </message>
