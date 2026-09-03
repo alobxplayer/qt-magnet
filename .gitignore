@@ -41,6 +41,10 @@ config.ini
 *.local
 *.log
 *.tmp
+build_local.ps1
+*build_local*
+aqtinstall.log
+aqinstall.log
 
 # OS files
 .DS_Store
