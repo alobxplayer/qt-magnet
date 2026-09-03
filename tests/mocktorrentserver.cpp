@@ -350,7 +350,11 @@ void MockServerWorker::handleQBittorrent(QTcpSocket *socket, const HttpRequest &
 
     if (_requireAuth) {
         QString cookie = req.headers.value(QStringLiteral("cookie"));
-        if (!_sessionValid || !cookie.contains(QLatin1String("SID=mock_sid_qbt_12345"))) {
+        QString apiKey = req.headers.value(QStringLiteral("x-api-key"));
+        QString authHeader = req.headers.value(QStringLiteral("authorization"));
+        bool hasApiKey = (!apiKey.isEmpty() && apiKey == QLatin1String("mock_api_key_secret")) ||
+                          (!authHeader.isEmpty() && authHeader == QLatin1String("Bearer mock_api_key_secret"));
+        if (!hasApiKey && (!_sessionValid || !cookie.contains(QLatin1String("SID=mock_sid_qbt_12345")))) {
             sendResponse(socket, 403, QStringLiteral("Forbidden"), QByteArrayLiteral("Forbidden"));
             return;
         }
@@ -399,10 +403,15 @@ void MockServerWorker::handleQBittorrent(QTcpSocket *socket, const HttpRequest &
 
         QJsonArray arr;
         for (const auto &t : _torrents) {
-            if (!hashList.isEmpty() && !hashList.contains(t.hash.toLower()))
+            if (!hashList.isEmpty() &&
+                !hashList.contains(t.hash.toLower()) &&
+                (t.infoHashV1.isEmpty() || !hashList.contains(t.infoHashV1.toLower())) &&
+                (t.infoHashV2.isEmpty() || !hashList.contains(t.infoHashV2.toLower())))
                 continue;
             QJsonObject obj;
             obj[QStringLiteral("hash")] = t.hash;
+            obj[QStringLiteral("infohash_v1")] = t.infoHashV1;
+            obj[QStringLiteral("infohash_v2")] = t.infoHashV2;
             obj[QStringLiteral("name")] = t.name;
             obj[QStringLiteral("state")] = t.state;
             obj[QStringLiteral("save_path")] = t.savePath;
@@ -580,6 +589,20 @@ void MockServerWorker::handleQBittorrent(QTcpSocket *socket, const HttpRequest &
         auto form = parseFormUrlEncoded(req.body);
         QString hash = form.value(QStringLiteral("hashes")).toLower();
         if (_torrents.contains(hash)) _torrents[hash].tags = form.value(QStringLiteral("tags"));
+        sendResponse(socket, 200, QStringLiteral("OK"), QByteArrayLiteral("Ok."));
+        return;
+    }
+    if (req.path == QLatin1String("/api/v2/torrents/removeTags")) {
+        auto form = parseFormUrlEncoded(req.body);
+        QString hash = form.value(QStringLiteral("hashes")).toLower();
+        if (_torrents.contains(hash)) {
+            QString toRemove = form.value(QStringLiteral("tags"));
+            QStringList remList = toRemove.split(QLatin1Char(','), Qt::SkipEmptyParts);
+            QStringList curList = _torrents[hash].tags.split(QLatin1Char(','), Qt::SkipEmptyParts);
+            for (const QString &r : remList)
+                curList.removeAll(r.trimmed());
+            _torrents[hash].tags = curList.join(QLatin1Char(','));
+        }
         sendResponse(socket, 200, QStringLiteral("OK"), QByteArrayLiteral("Ok."));
         return;
     }

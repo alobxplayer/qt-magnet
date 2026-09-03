@@ -50,6 +50,37 @@ static bool isHex(const QString &s)
     return true;
 }
 
+struct ConfigSandboxGuard {
+    QString cfgPath;
+    QByteArray originalBytes;
+    bool existed = false;
+    ConfigSandboxGuard() {
+        cfgPath = Config::filePath();
+        if (QFile::exists(cfgPath)) {
+            QFile f(cfgPath);
+            if (f.open(QIODevice::ReadOnly)) {
+                originalBytes = f.readAll();
+                existed = true;
+                f.close();
+            }
+        }
+    }
+    ~ConfigSandboxGuard() {
+        restore();
+    }
+    void restore() {
+        if (existed) {
+            QFile f(cfgPath);
+            if (f.open(QIODevice::WriteOnly)) {
+                f.write(originalBytes);
+                f.close();
+            }
+        } else {
+            QFile::remove(cfgPath);
+        }
+    }
+};
+
 static void runUnitTests()
 {
     auto m1 = MagnetLink::parse(QStringLiteral(
@@ -761,17 +792,194 @@ static void runWorkerTests(MockTorrentServer &server)
     }
 }
 
-static void runCliAppE2ETests(MockTorrentServer &server)
+static void runQBittorrentApiKeyTests(MockTorrentServer &server)
 {
     server.reset();
 
+    Config cfg;
+    cfg.host = server.host();
+    cfg.port = server.port();
+    cfg.authMode = QStringLiteral("apikey");
+    cfg.apiKey = QStringLiteral("mock_api_key_secret");
+    cfg.clientType = QStringLiteral("qbittorrent");
+    cfg.requestTimeoutSec = 5;
+
+    QbtClient client(cfg, [](const QString &){});
+
+    bool authOk = false;
+    try {
+        client.login();
+        authOk = true;
+    } catch (...) {}
+    check(authOk, QStringLiteral("qBt API Key: login with valid API key succeeds"));
+
+    client.fetchServerInfo();
+    check(!client.appVersion.isEmpty(), QStringLiteral("qBt API Key: fetchServerInfo succeeds with API key"));
+
+    cfg.apiKey = QStringLiteral("wrong_api_key");
+    QbtClient badClient(cfg, [](const QString &){});
+    bool badAuth = false;
+    try {
+        badClient.login();
+    } catch (const QbtException &) {
+        badAuth = true;
+    }
+    check(badAuth, QStringLiteral("qBt API Key: login with wrong API key fails"));
+}
+
+static void runDualHashResolutionTests(MockTorrentServer &server)
+{
+    server.reset();
+
+    QString v1Hash = QStringLiteral("c12fe1c06bba254a9dc9f519b335aa7c1367a88a");
+    QString v2Hash = QStringLiteral("0000000000000000000000000000000000000000000000000000000000000001");
+
+    MockTorrentData td;
+    td.hash = v2Hash;
+    td.infoHashV1 = v1Hash;
+    td.infoHashV2 = v2Hash;
+    td.name = QStringLiteral("Hybrid Dual Hash Test");
+    td.state = QStringLiteral("downloading");
+    server.addPreloadedTorrent(td);
+
+    Config cfg;
+    cfg.host = server.host();
+    cfg.port = server.port();
+    cfg.username = QStringLiteral("admin");
+    cfg.setPassword(QStringLiteral("adminpass"));
+    cfg.clientType = QStringLiteral("qbittorrent");
+    cfg.requestTimeoutSec = 5;
+
+    QbtClient client(cfg, [](const QString &){});
+    client.login();
+
+    QString resolved = client.resolveHash(v1Hash, {}, 3000, nullptr, v2Hash);
+    eq(resolved, v2Hash, QStringLiteral("Dual-hash: resolveHash finds torrent by dual-hash"));
+
+    QSet<QString> allH = client.allHashes();
+    check(allH.contains(v1Hash), QStringLiteral("Dual-hash: allHashes contains v1 hash"));
+    check(allH.contains(v2Hash), QStringLiteral("Dual-hash: allHashes contains v2 hash"));
+}
+
+static void runTagSyncTests(MockTorrentServer &server)
+{
+    server.reset();
+
+    QString hash = QStringLiteral("c12fe1c06bba254a9dc9f519b335aa7c1367a88a");
+    MockTorrentData td;
+    td.hash = hash;
+    td.name = QStringLiteral("Tag Sync Test");
+    td.tags = QStringLiteral("tag1, tag2");
+    td.state = QStringLiteral("downloading");
+    server.addPreloadedTorrent(td);
+
+    Config cfg;
+    cfg.host = server.host();
+    cfg.port = server.port();
+    cfg.username = QStringLiteral("admin");
+    cfg.setPassword(QStringLiteral("adminpass"));
+    cfg.clientType = QStringLiteral("qbittorrent");
+    cfg.requestTimeoutSec = 5;
+
+    QbtClient client(cfg, [](const QString &){});
+    client.login();
+
+    client.setTags(hash, QStringLiteral("tag2, tag3"), QStringLiteral("tag1, tag2"));
+
+    auto info = client.infoOne(hash);
+    check(info.has_value(), QStringLiteral("Tag Sync: infoOne retrieved"));
+    if (info) {
+        check(info->tags.contains(QStringLiteral("tag2")), QStringLiteral("Tag Sync: tag2 preserved"));
+        check(info->tags.contains(QStringLiteral("tag3")), QStringLiteral("Tag Sync: tag3 added"));
+        check(!info->tags.contains(QStringLiteral("tag1")), QStringLiteral("Tag Sync: tag1 removed"));
+    }
+}
+
+static void runAria2V2RejectionAndHybridFallbackTests(MockTorrentServer &server)
+{
+    server.reset();
+
+    Config cfg;
+    cfg.host = server.host();
+    cfg.port = server.port();
+    cfg.setPassword(QStringLiteral("mock-aria2-token"));
+    cfg.clientType = QStringLiteral("aria2");
+    cfg.requestTimeoutSec = 5;
+
+    QbtClient client(cfg, [](const QString &){});
+    client.login();
+
+    QString pureV2Magnet = QStringLiteral("magnet:?xt=urn:btmh:12200000000000000000000000000000000000000000000000000000000000000001&dn=PureV2");
+    bool v2MagnetRejected = false;
+    try {
+        client.addMagnet(pureV2Magnet, false, false, QString(), QString(), QString(), QString());
+    } catch (const QbtException &ex) {
+        v2MagnetRejected = ex.message.contains(QStringLiteral("BitTorrent v2"), Qt::CaseInsensitive);
+    }
+    check(v2MagnetRejected, QStringLiteral("Aria2: Pure v2 magnet rejected with informative message"));
+
+    QByteArray pureV2Torrent = QByteArrayLiteral(
+        "d8:announce18:http://tr1.org/ann4:infod9:file tree9:file1.txtd0:d6:lengthi1048576e11:pieces root32:00000000000000000000000000000001eee12:meta versioni2e4:name13:purev2torrent12:piece lengthi16384ee");
+    bool v2TorrentRejected = false;
+    try {
+        client.addTorrentFile(pureV2Torrent, QStringLiteral("purev2.torrent"), false, false, QString(), QString(), QString(), QString());
+    } catch (const QbtException &ex) {
+        v2TorrentRejected = ex.message.contains(QStringLiteral("BitTorrent v2"), Qt::CaseInsensitive);
+    }
+    check(v2TorrentRejected, QStringLiteral("Aria2: Pure v2 .torrent file rejected with informative message"));
+
+    QByteArray hybridTorrent = QByteArrayLiteral(
+        "d8:announce18:http://tr1.org/ann4:infod6:lengthi1048576e4:name10:hybrid.iso12:piece lengthi16384e6:pieces20:123456789012345678909:file tree10:hybrid.isod0:d6:lengthi1048576e11:pieces root32:00000000000000000000000000000001eee12:meta versioni2eee");
+    bool hybridFallbackOk = false;
+    try {
+        client.addTorrentFile(hybridTorrent, QStringLiteral("hybrid.torrent"), false, false, QString(), QString(), QString(), QString());
+        hybridFallbackOk = true;
+    } catch (...) {}
+    check(hybridFallbackOk, QStringLiteral("Aria2: Hybrid .torrent file converted to v1 magnet fallback and added"));
+
+    QString v1Magnet = QStringLiteral("magnet:?xt=urn:btih:d12fe1c06bba254a9dc9f519b335aa7c1367a88a&dn=ImmediateGidTest");
+    client.addMagnet(v1Magnet, false, false, QString(), QString(), QString(), QString());
+    QSet<QString> hashes = client.allHashes();
+    check(hashes.contains(QStringLiteral("d12fe1c06bba254a9dc9f519b335aa7c1367a88a")),
+          QStringLiteral("Aria2: Magnet infohash mapped to GID immediately on addMagnet"));
+}
+
+static void runConfigAndSecretStoreTests()
+{
+    ConfigSandboxGuard guard;
+
+    Config cfg;
+    cfg.host = QStringLiteral("127.0.0.1");
+    cfg.port = 9090;
+    cfg.username = QStringLiteral("testuser");
+    cfg.setPassword(QStringLiteral("mysecretpassword"));
+    cfg.authMode = QStringLiteral("apikey");
+    cfg.setApiKey(QStringLiteral("mysecretapikey"));
+
+    eq(cfg.getPassword(), QStringLiteral("mysecretpassword"), QStringLiteral("Config: getPassword returns cleartext"));
+    eq(cfg.getApiKey(), QStringLiteral("mysecretapikey"), QStringLiteral("Config: getApiKey returns cleartext"));
+
+    cfg.save();
+
+    Config loaded = Config::load();
+    eq(loaded.host, QStringLiteral("127.0.0.1"), QStringLiteral("Config: host reloaded"));
+    check(loaded.port == 9090, QStringLiteral("Config: port reloaded"));
+    eq(loaded.username, QStringLiteral("testuser"), QStringLiteral("Config: username reloaded"));
+    eq(loaded.authMode, QStringLiteral("apikey"), QStringLiteral("Config: authMode reloaded"));
+    eq(loaded.getPassword(), QStringLiteral("mysecretpassword"), QStringLiteral("Config: getPassword reloaded from store"));
+    eq(loaded.getApiKey(), QStringLiteral("mysecretapikey"), QStringLiteral("Config: getApiKey reloaded from store"));
+}
+
+static void runCliAppE2ETests(MockTorrentServer &server)
+{
     QString appDir = QCoreApplication::applicationDirPath();
     QStringList candidates = {
+        appDir + QStringLiteral("/qt-magnet.exe"),
+        appDir + QStringLiteral("/qt-magnet"),
+        appDir + QStringLiteral("/../../qt-magnet.exe"),
         appDir + QStringLiteral("/../../dist/win_64/qt-magnet.exe"),
         appDir + QStringLiteral("/../dist/win_64/qt-magnet.exe"),
-        appDir + QStringLiteral("/dist/win_64/qt-magnet.exe"),
-        appDir + QStringLiteral("/qt-magnet.exe"),
-        appDir + QStringLiteral("/qt-magnet")
+        appDir + QStringLiteral("/dist/win_64/qt-magnet.exe")
     };
 
     QString exePath;
@@ -785,13 +993,7 @@ static void runCliAppE2ETests(MockTorrentServer &server)
     if (exePath.isEmpty())
         return;
 
-    QString cfgPath = Config::filePath();
-    QByteArray originalConfigBytes;
-    bool hadConfig = QFile::exists(cfgPath);
-    if (hadConfig) {
-        QFile f(cfgPath);
-        if (f.open(QIODevice::ReadOnly)) originalConfigBytes = f.readAll();
-    }
+    ConfigSandboxGuard guard;
 
     Config testCfg;
     testCfg.host = server.host();
@@ -849,16 +1051,6 @@ static void runCliAppE2ETests(MockTorrentServer &server)
               QStringLiteral("E2E: torrent from .torrent file added to mock server"));
         QFile::remove(tempTorrentPath);
     }
-
-    if (hadConfig) {
-        QFile f(cfgPath);
-        if (f.open(QIODevice::WriteOnly)) {
-            f.write(originalConfigBytes);
-            f.close();
-        }
-    } else {
-        QFile::remove(cfgPath);
-    }
 }
 
 int main(int argc, char *argv[])
@@ -868,6 +1060,7 @@ int main(int argc, char *argv[])
     QCoreApplication::setApplicationName(QStringLiteral("qt-magnet"));
 
     runUnitTests();
+    runConfigAndSecretStoreTests();
 
     MockTorrentServer serverQbt(MockClientType::QBittorrent);
     MockTorrentServer serverTr(MockClientType::Transmission);
@@ -883,8 +1076,12 @@ int main(int argc, char *argv[])
 
     if (qbtStarted && trStarted && aria2Started) {
         runQBittorrentTests(serverQbt);
+        runQBittorrentApiKeyTests(serverQbt);
+        runDualHashResolutionTests(serverQbt);
+        runTagSyncTests(serverQbt);
         runTransmissionTests(serverTr);
         runAria2Tests(serverAria2);
+        runAria2V2RejectionAndHybridFallbackTests(serverAria2);
         runAutoDetectTests(serverQbt, serverTr, serverAria2);
         runWorkerTests(serverQbt);
         runCliAppE2ETests(serverQbt);

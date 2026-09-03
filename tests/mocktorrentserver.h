@@ -28,6 +28,8 @@ struct MockTorrentFile {
 
 struct MockTorrentData {
     QString hash;
+    QString infoHashV1;
+    QString infoHashV2;
     QString name;
     QString state;
     QString savePath;
