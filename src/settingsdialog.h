@@ -40,6 +40,7 @@ private:
     Config &_cfg;
 
     QComboBox *_clientType = nullptr;
+    QLabel *_authLabel = nullptr;
     QComboBox *_authMode = nullptr;
     QLineEdit *_host = nullptr;
     QSpinBox *_port = nullptr;

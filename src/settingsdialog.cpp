@@ -138,9 +138,9 @@ QWidget *SettingsDialog::buildConnectionGroup()
     _authMode = new QComboBox(this);
     _authMode->addItem(tr("Username / Password"), QStringLiteral("password"));
     _authMode->addItem(tr("API Key (qBittorrent v6+)"), QStringLiteral("apikey"));
-    auto *authLabel = new QLabel(tr("&Authentication:"), this);
-    authLabel->setBuddy(_authMode);
-    form->addRow(authLabel, _authMode);
+    _authLabel = new QLabel(tr("&Authentication:"), this);
+    _authLabel->setBuddy(_authMode);
+    form->addRow(_authLabel, _authMode);
 
     _username = new QLineEdit(this);
     _username->setClearButtonEnabled(true);
@@ -203,26 +203,26 @@ QWidget *SettingsDialog::buildConnectionGroup()
 void SettingsDialog::updateAuthModeVisibility()
 {
     QString ctype = _clientType->currentData().toString();
-    bool qbtSupported = (ctype == QLatin1String("auto") || ctype == QLatin1String("qbittorrent"));
+    bool isQbt = (ctype == QLatin1String("qbittorrent"));
 
-    int apiKeyIdx = _authMode->findData(QStringLiteral("apikey"));
-    if (apiKeyIdx >= 0) {
-        auto *model = qobject_cast<QStandardItemModel *>(_authMode->model());
-        if (model) {
-            auto *item = model->item(apiKeyIdx);
-            if (item)
-                item->setEnabled(qbtSupported);
-        }
-    }
-    if (!qbtSupported && _authMode->currentData().toString() == QLatin1String("apikey")) {
-        _authMode->setCurrentIndex(_authMode->findData(QStringLiteral("password")));
-    }
+    if (_authLabel)
+        _authLabel->setVisible(isQbt);
+    if (_authMode)
+        _authMode->setVisible(isQbt);
 
-    bool isApiKey = (_authMode->currentData().toString() == QLatin1String("apikey"));
-    _userLabel->setVisible(!isApiKey);
-    _username->setVisible(!isApiKey);
+    bool isApiKey = isQbt && (_authMode->currentData().toString() == QLatin1String("apikey"));
+    bool isAria2 = (ctype == QLatin1String("aria2"));
+
+    _userLabel->setVisible(!isApiKey && !isAria2);
+    _username->setVisible(!isApiKey && !isAria2);
     _passLabel->setVisible(!isApiKey);
     _passWidget->setVisible(!isApiKey);
+
+    if (isAria2) {
+        _passLabel->setText(tr("RPC &Secret Token:"));
+    } else {
+        _passLabel->setText(tr("&Password:"));
+    }
 
     _apiKeyLabel->setVisible(isApiKey);
     _apiKeyWidget->setVisible(isApiKey);
@@ -395,7 +395,9 @@ void SettingsDialog::onSave()
     newCfg.host = host;
     newCfg.port = _port->value();
     newCfg.useHttps = _https->isChecked();
-    newCfg.authMode = _authMode->currentData().toString();
+    newCfg.authMode = (newCfg.clientType == QLatin1String("qbittorrent"))
+                          ? _authMode->currentData().toString()
+                          : QStringLiteral("password");
     newCfg.username = _username->text().trimmed();
     newCfg.setPassword(_password->text());
     newCfg.setApiKey(_apiKey->text().trimmed());
@@ -439,7 +441,9 @@ void SettingsDialog::testConnection()
     probe.host = _host->text().trimmed();
     probe.port = _port->value();
     probe.useHttps = _https->isChecked();
-    probe.authMode = _authMode->currentData().toString();
+    probe.authMode = (probe.clientType == QLatin1String("qbittorrent"))
+                         ? _authMode->currentData().toString()
+                         : QStringLiteral("password");
     probe.username = _username->text().trimmed();
     probe.password = _password->text();
     probe.apiKey = _apiKey->text().trimmed();
