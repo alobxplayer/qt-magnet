@@ -85,10 +85,8 @@ struct Options {
                     o.quickOverride = 0;
                 else if (key == QLatin1String("help") || key == QLatin1String("h") || key == QLatin1String("?"))
                     o.showHelp = true;
-                else if (a[0] == QLatin1Char('-'))
-                    Log::write(QStringLiteral("Unknown switch: %1").arg(a));
                 else
-                    rest.append(a);
+                    Log::write(QStringLiteral("Unknown switch: %1").arg(a));
                 continue;
             }
             rest.append(a);
@@ -300,6 +298,7 @@ int main(int argc, char *argv[])
             try { cfg.save(); } catch (const std::exception &ex) { Log::write(QStringLiteral("Failed to save initial config: %1").arg(QString::fromUtf8(ex.what()))); }
         } else {
             cfg.language = (QLocale::system().language() == QLocale::Russian) ? QStringLiteral("ru_RU") : QStringLiteral("en_US");
+            try { cfg.save(); } catch (const std::exception &ex) { Log::write(QStringLiteral("Failed to save initial config: %1").arg(QString::fromUtf8(ex.what()))); }
         }
     }
 
