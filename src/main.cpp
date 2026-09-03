@@ -280,7 +280,7 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
     QApplication::setOrganizationName(QStringLiteral("QtMagnet"));
     QApplication::setApplicationName(QStringLiteral("qt-magnet"));
-    QApplication::setApplicationVersion(QStringLiteral("1.1.0"));
+    QApplication::setApplicationVersion(QStringLiteral("1.1.1"));
 
     qInstallMessageHandler(messageHandler);
     Log::write(QStringLiteral("Startup: %1").arg(app.arguments().join(QLatin1Char(' '))));
