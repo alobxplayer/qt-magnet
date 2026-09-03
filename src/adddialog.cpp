@@ -19,11 +19,17 @@
 static const char *kAppTitle = "qt-magnet";
 
 namespace {
-constexpr int kColWidthFile     = 300;
+constexpr int kColIndex    = 0;
+constexpr int kColFile     = 1;
+constexpr int kColSize     = 2;
+constexpr int kColProgress = 3;
+constexpr int kColPriority = 4;
+
+constexpr int kColWidthIndex    = 45;
+constexpr int kColWidthFile     = 280;
 constexpr int kColWidthSize     = 95;
-constexpr int kColWidthProgress = 85;
+constexpr int kColWidthProgress = 90;
 constexpr int kColWidthPriority = 110;
-constexpr int kColWidthIndex    = 50;
 
 class FileTreeItem : public QTreeWidgetItem {
 public:
@@ -31,24 +37,24 @@ public:
     bool operator<(const QTreeWidgetItem &other) const override {
         int col = treeWidget() ? treeWidget()->sortColumn() : 0;
         bool isAsc = treeWidget() ? (treeWidget()->header()->sortIndicatorOrder() == Qt::AscendingOrder) : true;
-        bool thisIsFile = data(0, IsFileRole).toBool();
-        bool otherIsFile = other.data(0, IsFileRole).toBool();
+        bool thisIsFile = data(kColFile, IsFileRole).toBool();
+        bool otherIsFile = other.data(kColFile, IsFileRole).toBool();
         if (!thisIsFile && otherIsFile)
             return isAsc;
         if (thisIsFile && !otherIsFile)
             return !isAsc;
 
-        if (col == 1) {
-            return data(0, FileSizeRole).toLongLong() < other.data(0, FileSizeRole).toLongLong();
+        if (col == kColIndex) {
+            return data(kColFile, FileIndexRole).toInt() < other.data(kColFile, FileIndexRole).toInt();
         }
-        if (col == 2) {
-            return data(0, ProgressRole).toDouble() < other.data(0, ProgressRole).toDouble();
+        if (col == kColSize) {
+            return data(kColFile, FileSizeRole).toLongLong() < other.data(kColFile, FileSizeRole).toLongLong();
         }
-        if (col == 3) {
-            return data(0, PriorityRole).toInt() < other.data(0, PriorityRole).toInt();
+        if (col == kColProgress) {
+            return data(kColFile, ProgressRole).toDouble() < other.data(kColFile, ProgressRole).toDouble();
         }
-        if (col == 4) {
-            return data(0, FileIndexRole).toInt() < other.data(0, FileIndexRole).toInt();
+        if (col == kColPriority) {
+            return data(kColFile, PriorityRole).toInt() < other.data(kColFile, PriorityRole).toInt();
         }
         return text(col).localeAwareCompare(other.text(col)) < 0;
     }
@@ -62,13 +68,14 @@ public:
         QStyleOptionViewItem opt = option;
         initStyleOption(&opt, index);
 
-        bool isFile = index.data(IsFileRole).toBool();
+        QModelIndex fileIndex = index.sibling(index.row(), kColFile);
+        bool isFile = fileIndex.data(IsFileRole).toBool();
         if (!isFile) {
             QStyledItemDelegate::paint(painter, option, index);
             return;
         }
 
-        double prog = index.data(ProgressRole).toDouble();
+        double prog = fileIndex.data(ProgressRole).toDouble();
         if (prog < 0.0) prog = 0.0;
         if (prog > 1.0) prog = 1.0;
 
@@ -79,11 +86,12 @@ public:
             painter->fillRect(opt.rect, opt.palette.highlight());
         }
 
-        QRect barRect = opt.rect.adjusted(6, 4, -6, -4);
-        if (barRect.width() > 10 && barRect.height() > 4) {
+        QRect barRect = opt.rect.adjusted(4, 3, -4, -3);
+        if (barRect.width() > 6 && barRect.height() > 4) {
+            bool darkTheme = (opt.palette.window().color().lightness() < 128);
             QColor grooveColor = (opt.state & QStyle::State_Selected)
-                ? opt.palette.highlight().color().darker(130)
-                : opt.palette.color(QPalette::Midlight);
+                ? opt.palette.highlight().color().darker(140)
+                : (darkTheme ? QColor(50, 50, 50) : QColor(225, 228, 232));
             painter->setPen(Qt::NoPen);
             painter->setBrush(grooveColor);
             painter->drawRoundedRect(barRect, 3, 3);
@@ -93,17 +101,20 @@ public:
                 QRect fillRect = barRect;
                 fillRect.setWidth(fillWidth);
                 QColor chunkColor = (prog >= 1.0)
-                    ? QColor(46, 160, 67)
+                    ? QColor(40, 167, 69)
                     : QColor(33, 136, 255);
                 painter->setBrush(chunkColor);
                 painter->drawRoundedRect(fillRect, 3, 3);
             }
 
-            QString text = QString::number(qRound(prog * 100.0)) + QLatin1Char('%');
+            QString text = QString::number(prog * 100.0, 'f', 1) + QLatin1Char('%');
+            if (prog >= 1.0) text = QStringLiteral("100%");
+            else if (prog <= 0.0) text = QStringLiteral("0%");
+
             painter->setFont(opt.font);
             QColor textColor = (opt.state & QStyle::State_Selected)
                 ? opt.palette.highlightedText().color()
-                : (prog > 0.5 ? Qt::white : opt.palette.text().color());
+                : (prog > 0.5 ? Qt::white : (darkTheme ? Qt::white : QColor(30, 30, 30)));
             painter->setPen(textColor);
             painter->drawText(barRect, Qt::AlignCenter, text);
         }
@@ -185,9 +196,9 @@ void AddDialog::buildUi()
         QString filter = text.trimmed();
         _blockTreeSignals = true;
         std::function<bool(QTreeWidgetItem *)> filterItem = [&](QTreeWidgetItem *item) -> bool {
-            bool isFile = item->data(0, IsFileRole).toBool();
+            bool isFile = item->data(kColFile, IsFileRole).toBool();
             if (isFile) {
-                QString name = item->data(0, BaseNameRole).toString();
+                QString name = item->data(kColFile, BaseNameRole).toString();
                 bool matches = filter.isEmpty() || name.contains(filter, Qt::CaseInsensitive);
                 item->setHidden(!matches);
                 return matches;
@@ -208,7 +219,8 @@ void AddDialog::buildUi()
     });
 
     _tree = new QTreeWidget(this);
-    _tree->setHeaderLabels({tr("File"), tr("Size"), tr("Progress"), tr("Priority"), tr("#")});
+    _tree->setHeaderLabels({tr("#"), tr("File"), tr("Size"), tr("Progress"), tr("Priority")});
+    _tree->setTreePosition(kColFile);
     _tree->header()->setSectionsMovable(true);
     _tree->header()->setSectionResizeMode(QHeaderView::Interactive);
     _tree->header()->setStretchLastSection(false);
@@ -219,27 +231,32 @@ void AddDialog::buildUi()
     _tree->setSelectionMode(QAbstractItemView::ExtendedSelection);
     _tree->setContextMenuPolicy(Qt::CustomContextMenu);
 
-    _tree->setItemDelegateForColumn(2, new ProgressBarDelegate(_tree));
+    _tree->setItemDelegateForColumn(kColProgress, new ProgressBarDelegate(_tree));
 
-    _tree->setColumnWidth(0, kColWidthFile);
-    _tree->setColumnWidth(1, kColWidthSize);
-    _tree->setColumnWidth(2, kColWidthProgress);
-    _tree->setColumnWidth(3, kColWidthPriority);
-    _tree->setColumnWidth(4, kColWidthIndex);
+    _tree->setColumnWidth(kColIndex, kColWidthIndex);
+    _tree->setColumnWidth(kColFile, kColWidthFile);
+    _tree->setColumnWidth(kColSize, kColWidthSize);
+    _tree->setColumnWidth(kColProgress, kColWidthProgress);
+    _tree->setColumnWidth(kColPriority, kColWidthPriority);
 
-    if (!_cfg.treeHeaderState.isEmpty()) {
-        _tree->header()->restoreState(QByteArray::fromBase64(_cfg.treeHeaderState.toLatin1()));
-    } else {
-        _tree->header()->moveSection(4, 0);
-        _tree->sortByColumn(4, Qt::AscendingOrder);
-    }
+    _tree->sortByColumn(kColIndex, Qt::AscendingOrder);
+
+    // Enforce '#' as first column and 'File' as second column:
+    if (_tree->header()->visualIndex(kColIndex) != 0)
+        _tree->header()->moveSection(_tree->header()->visualIndex(kColIndex), 0);
+    if (_tree->header()->visualIndex(kColFile) != 1)
+        _tree->header()->moveSection(_tree->header()->visualIndex(kColFile), 1);
+
+    // By default, hide Progress and Priority until server check confirms torrent exists:
+    _tree->setColumnHidden(kColProgress, true);
+    _tree->setColumnHidden(kColPriority, true);
 
     connect(_tree->header(), &QHeaderView::customContextMenuRequested, this, &AddDialog::onHeaderContextMenu);
     connect(_tree, &QTreeWidget::customContextMenuRequested, this, &AddDialog::onTreeContextMenu);
     connect(_tree, &QTreeWidget::itemChanged, this, &AddDialog::onTreeItemChanged);
     connect(_tree, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem *item, int) {
-        if (item->data(0, IsFileRole).toBool())
-            item->setCheckState(0, item->checkState(0) == Qt::Checked ? Qt::Unchecked : Qt::Checked);
+        if (item->data(kColFile, IsFileRole).toBool())
+            item->setCheckState(kColFile, item->checkState(kColFile) == Qt::Checked ? Qt::Unchecked : Qt::Checked);
     });
     mainLayout->addWidget(_tree, 1);
 
@@ -254,8 +271,8 @@ void AddDialog::buildUi()
 
     _treeMenu = new QMenu(this);
     _treeMenu->addAction(tr("Download (Normal)"), this, [this]{ setPriority(1); });
-    _treeMenu->addAction(tr("High"), this, [this]{ setPriority(6); });
-    _treeMenu->addAction(tr("Maximum"), this, [this]{ setPriority(7); });
+    _actHigh = _treeMenu->addAction(tr("High"), this, [this]{ setPriority(6); });
+    _actMaximum = _treeMenu->addAction(tr("Maximum"), this, [this]{ setPriority(7); });
     _treeMenu->addSeparator();
     _treeMenu->addAction(tr("Do not download"), this, [this]{ setPriority(0); });
     _treeMenu->addSeparator();
@@ -264,7 +281,7 @@ void AddDialog::buildUi()
     _treeMenu->addAction(tr("Invert check"), this, [this]{
         _blockTreeSignals = true;
         forEachFileInTree(_tree, [](QTreeWidgetItem *item) {
-            bool on = item->checkState(0) != Qt::Checked;
+            bool on = item->checkState(kColFile) != Qt::Checked;
             setSubtreeCheck(item, on);
             refreshAncestors(item);
         });
@@ -459,6 +476,10 @@ void AddDialog::populateInteractive(const QVector<TorrentFile> &files)
         _nameLabel->setText(_payload.prettyName());
     }
 
+    bool existed = (_worker && _worker->existed);
+    _tree->setColumnHidden(kColProgress, !existed);
+    _tree->setColumnHidden(kColPriority, !existed);
+
     if (_worker->existed) {
         _okButton->setText(tr("Update"));
         if (files.isEmpty()) {
@@ -490,11 +511,12 @@ void AddDialog::populateInteractive(const QVector<TorrentFile> &files)
     if (!selectedIndices.isEmpty() && !files.isEmpty()) {
         _blockTreeSignals = true;
         forEachFileInTree(_tree, [&selectedIndices](QTreeWidgetItem *item) {
-            int idx = item->data(0, FileIndexRole).toInt();
+            int idx = item->data(kColFile, FileIndexRole).toInt();
             bool wanted = selectedIndices.contains(idx);
-            item->setCheckState(0, wanted ? Qt::Checked : Qt::Unchecked);
+            item->setCheckState(kColFile, wanted ? Qt::Checked : Qt::Unchecked);
             int newPrio = wanted ? 1 : 0;
-            item->setData(0, PriorityRole, newPrio);
+            item->setData(kColFile, PriorityRole, newPrio);
+            item->setData(kColIndex, PriorityRole, newPrio);
             updateFileText(item);
         });
         for (int i = 0; i < _tree->topLevelItemCount(); ++i)
@@ -532,21 +554,31 @@ void AddDialog::buildTree(const QVector<TorrentFile> &files)
             bool isLast = (i == parts.size() - 1);
             if (isLast) {
                 auto *item = new FileTreeItem();
-                item->setText(0, parts[i]);
-                item->setData(0, FileIndexRole, f.index);
-                item->setData(0, FileSizeRole, f.size);
-                item->setData(0, PriorityRole, f.priority);
-                item->setData(0, OriginalPriorityRole, f.priority);
-                item->setData(0, PrioBeforeUncheckRole, f.priority == 0 ? 1 : f.priority);
-                item->setData(0, ProgressRole, f.progress);
-                item->setData(0, IsFileRole, true);
-                item->setData(0, BaseNameRole, parts[i]);
+                item->setText(kColIndex, QString::number(f.index + 1));
+                item->setText(kColFile, parts[i]);
+                item->setData(kColFile, FileIndexRole, f.index);
+                item->setData(kColIndex, FileIndexRole, f.index);
+                item->setData(kColFile, FileSizeRole, f.size);
+                item->setData(kColIndex, FileSizeRole, f.size);
+                item->setData(kColFile, PriorityRole, f.priority);
+                item->setData(kColIndex, PriorityRole, f.priority);
+                item->setData(kColFile, OriginalPriorityRole, f.priority);
+                item->setData(kColIndex, OriginalPriorityRole, f.priority);
+                item->setData(kColFile, PrioBeforeUncheckRole, f.priority == 0 ? 1 : f.priority);
+                item->setData(kColIndex, PrioBeforeUncheckRole, f.priority == 0 ? 1 : f.priority);
+                item->setData(kColFile, ProgressRole, f.progress);
+                item->setData(kColIndex, ProgressRole, f.progress);
+                item->setData(kColProgress, ProgressRole, f.progress);
+                item->setData(kColFile, IsFileRole, true);
+                item->setData(kColIndex, IsFileRole, true);
+                item->setData(kColFile, BaseNameRole, parts[i]);
+                item->setData(kColIndex, BaseNameRole, parts[i]);
                 item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
-                item->setCheckState(0, f.priority == 0 ? Qt::Unchecked : Qt::Checked);
+                item->setCheckState(kColFile, f.priority == 0 ? Qt::Unchecked : Qt::Checked);
 
                 QFileInfo fi(parts[i]);
                 QIcon fiIcon = iconProvider.icon(fi);
-                item->setIcon(0, fiIcon.isNull() ? fallbackFileIcon : fiIcon);
+                item->setIcon(kColFile, fiIcon.isNull() ? fallbackFileIcon : fiIcon);
 
                 if (parent)
                     parent->addChild(item);
@@ -557,12 +589,15 @@ void AddDialog::buildTree(const QVector<TorrentFile> &files)
                 QTreeWidgetItem *folder = folders.value(acc);
                 if (!folder) {
                     folder = new FileTreeItem();
-                    folder->setText(0, parts[i]);
-                    folder->setData(0, IsFileRole, false);
-                    folder->setData(0, BaseNameRole, parts[i]);
+                    folder->setText(kColIndex, QString());
+                    folder->setText(kColFile, parts[i]);
+                    folder->setData(kColFile, IsFileRole, false);
+                    folder->setData(kColIndex, IsFileRole, false);
+                    folder->setData(kColFile, BaseNameRole, parts[i]);
+                    folder->setData(kColIndex, BaseNameRole, parts[i]);
                     folder->setFlags(folder->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsAutoTristate);
-                    folder->setCheckState(0, Qt::Checked);
-                    folder->setIcon(0, folderIcon);
+                    folder->setCheckState(kColFile, Qt::Checked);
+                    folder->setIcon(kColFile, folderIcon);
                     if (parent)
                         parent->addChild(folder);
                     else
@@ -576,8 +611,8 @@ void AddDialog::buildTree(const QVector<TorrentFile> &files)
 
     for (int i = 0; i < _tree->topLevelItemCount(); ++i) {
         computeFolder(_tree->topLevelItem(i));
-        if (!_tree->topLevelItem(i)->data(0, IsFileRole).toBool())
-            _tree->topLevelItem(i)->setCheckState(0, computeFolderState(_tree->topLevelItem(i)));
+        if (!_tree->topLevelItem(i)->data(kColFile, IsFileRole).toBool())
+            _tree->topLevelItem(i)->setCheckState(kColFile, computeFolderState(_tree->topLevelItem(i)));
     }
 
     if (_tree->topLevelItemCount() <= 2)
@@ -591,8 +626,8 @@ void AddDialog::buildTree(const QVector<TorrentFile> &files)
 
 AddDialog::FolderStats AddDialog::computeFolder(QTreeWidgetItem *item)
 {
-    if (item->data(0, IsFileRole).toBool()) {
-        return { item->data(0, FileSizeRole).toLongLong(), 1 };
+    if (item->data(kColFile, IsFileRole).toBool()) {
+        return { item->data(kColFile, FileSizeRole).toLongLong(), 1 };
     }
 
     qint64 sum = 0;
@@ -602,21 +637,23 @@ AddDialog::FolderStats AddDialog::computeFolder(QTreeWidgetItem *item)
         sum += childStats.size;
         fileCount += childStats.fileCount;
     }
-    item->setData(0, FileSizeRole, sum);
-    QString baseName = item->data(0, BaseNameRole).toString();
+    item->setData(kColFile, FileSizeRole, sum);
+    item->setData(kColIndex, FileSizeRole, sum);
+    QString baseName = item->data(kColFile, BaseNameRole).toString();
     if (baseName.isEmpty())
-        baseName = item->text(0);
+        baseName = item->text(kColFile);
     const QString countStr = tr("%n file(s)", "", fileCount);
-    item->setText(0, baseName);
-    item->setText(1, Format::size(sum) + QStringLiteral(" (") + countStr + QStringLiteral(")"));
-    item->setText(2, QString());
-    item->setText(3, QString());
-    item->setText(4, QString());
+    item->setText(kColIndex, QString());
+    item->setText(kColFile, baseName);
+    item->setText(kColSize, Format::size(sum) + QStringLiteral(" (") + countStr + QStringLiteral(")"));
+    item->setText(kColProgress, QString());
+    item->setText(kColPriority, QString());
     return { sum, fileCount };
 }
 
 void AddDialog::onHeaderContextMenu(const QPoint &pos)
 {
+    bool existed = (_worker && _worker->existed);
     QMenu menu(this);
     menu.setTitle(tr("Columns"));
 
@@ -624,13 +661,15 @@ void AddDialog::onHeaderContextMenu(const QPoint &pos)
     int count = hdr->count();
 
     for (int i = 0; i < count; ++i) {
+        if (!existed && (i == kColProgress || i == kColPriority))
+            continue;
         QString title = _tree->headerItem()->text(i);
         if (title.isEmpty())
             continue;
         auto *act = menu.addAction(title);
         act->setCheckable(true);
         act->setChecked(!hdr->isSectionHidden(i));
-        if (i == 0) {
+        if (i == kColFile || i == kColIndex) {
             act->setEnabled(false);
         } else {
             connect(act, &QAction::toggled, this, [hdr, i](bool visible) {
@@ -640,14 +679,20 @@ void AddDialog::onHeaderContextMenu(const QPoint &pos)
     }
 
     menu.addSeparator();
-    menu.addAction(tr("Reset columns"), this, [this, hdr]() {
-        for (int i = 0; i < hdr->count(); ++i)
-            hdr->setSectionHidden(i, false);
-        _tree->setColumnWidth(0, kColWidthFile);
-        _tree->setColumnWidth(1, kColWidthSize);
-        _tree->setColumnWidth(2, kColWidthProgress);
-        _tree->setColumnWidth(3, kColWidthPriority);
-        _tree->setColumnWidth(4, kColWidthIndex);
+    menu.addAction(tr("Reset columns"), this, [this, hdr, existed]() {
+        for (int i = 0; i < hdr->count(); ++i) {
+            bool hide = (!existed && (i == kColProgress || i == kColPriority));
+            hdr->setSectionHidden(i, hide);
+        }
+        _tree->setColumnWidth(kColIndex, kColWidthIndex);
+        _tree->setColumnWidth(kColFile, kColWidthFile);
+        _tree->setColumnWidth(kColSize, kColWidthSize);
+        _tree->setColumnWidth(kColProgress, kColWidthProgress);
+        _tree->setColumnWidth(kColPriority, kColWidthPriority);
+        if (hdr->visualIndex(kColIndex) != 0)
+            hdr->moveSection(hdr->visualIndex(kColIndex), 0);
+        if (hdr->visualIndex(kColFile) != 1)
+            hdr->moveSection(hdr->visualIndex(kColFile), 1);
     });
 
     menu.exec(_tree->header()->mapToGlobal(pos));
@@ -656,29 +701,33 @@ void AddDialog::onHeaderContextMenu(const QPoint &pos)
 
 void AddDialog::onTreeItemChanged(QTreeWidgetItem *item, int column)
 {
-    if (_blockTreeSignals || column != 0)
+    if (_blockTreeSignals || column != kColFile)
         return;
 
     _blockTreeSignals = true;
-    bool isFile = item->data(0, IsFileRole).toBool();
+    bool isFile = item->data(kColFile, IsFileRole).toBool();
     if (isFile) {
-        int prio = item->data(0, PriorityRole).toInt();
-        if (item->checkState(0) == Qt::Unchecked) {
+        int prio = item->data(kColFile, PriorityRole).toInt();
+        if (item->checkState(kColFile) == Qt::Unchecked) {
             if (prio != 0) {
-                item->setData(0, PrioBeforeUncheckRole, prio);
-                item->setData(0, PriorityRole, 0);
+                item->setData(kColFile, PrioBeforeUncheckRole, prio);
+                item->setData(kColIndex, PrioBeforeUncheckRole, prio);
+                item->setData(kColFile, PriorityRole, 0);
+                item->setData(kColIndex, PriorityRole, 0);
             }
         } else {
             if (prio == 0) {
-                int prev = item->data(0, PrioBeforeUncheckRole).toInt();
-                item->setData(0, PriorityRole, prev > 0 ? prev : 1);
+                int prev = item->data(kColFile, PrioBeforeUncheckRole).toInt();
+                int newPrio = prev > 0 ? prev : 1;
+                item->setData(kColFile, PriorityRole, newPrio);
+                item->setData(kColIndex, PriorityRole, newPrio);
             }
         }
         updateFileText(item);
         refreshAncestors(item);
     } else {
-        if (item->checkState(0) != Qt::PartiallyChecked) {
-            bool on = (item->checkState(0) == Qt::Checked);
+        if (item->checkState(kColFile) != Qt::PartiallyChecked) {
+            bool on = (item->checkState(kColFile) == Qt::Checked);
             setSubtreeCheck(item, on);
             refreshAncestors(item);
         }
@@ -695,6 +744,9 @@ void AddDialog::onTreeContextMenu(const QPoint &pos)
         item->setSelected(true);
         _tree->setCurrentItem(item);
     }
+    bool existed = (_worker && _worker->existed);
+    if (_actHigh) _actHigh->setVisible(existed);
+    if (_actMaximum) _actMaximum->setVisible(existed);
     _treeMenu->popup(_tree->viewport()->mapToGlobal(pos));
 }
 
@@ -726,47 +778,55 @@ void AddDialog::checkAll(bool on)
 
 void AddDialog::setSubtreeCheck(QTreeWidgetItem *item, bool on)
 {
-    bool isFile = item->data(0, IsFileRole).toBool();
+    bool isFile = item->data(kColFile, IsFileRole).toBool();
     if (isFile) {
-        int prio = item->data(0, PriorityRole).toInt();
+        int prio = item->data(kColFile, PriorityRole).toInt();
         if (on) {
             if (prio == 0) {
-                int prev = item->data(0, PrioBeforeUncheckRole).toInt();
-                item->setData(0, PriorityRole, prev > 0 ? prev : 1);
+                int prev = item->data(kColFile, PrioBeforeUncheckRole).toInt();
+                int newPrio = prev > 0 ? prev : 1;
+                item->setData(kColFile, PriorityRole, newPrio);
+                item->setData(kColIndex, PriorityRole, newPrio);
             }
         } else {
-            if (prio != 0)
-                item->setData(0, PrioBeforeUncheckRole, prio);
-            item->setData(0, PriorityRole, 0);
+            if (prio != 0) {
+                item->setData(kColFile, PrioBeforeUncheckRole, prio);
+                item->setData(kColIndex, PrioBeforeUncheckRole, prio);
+            }
+            item->setData(kColFile, PriorityRole, 0);
+            item->setData(kColIndex, PriorityRole, 0);
         }
         updateFileText(item);
     }
-    item->setCheckState(0, on ? Qt::Checked : Qt::Unchecked);
+    item->setCheckState(kColFile, on ? Qt::Checked : Qt::Unchecked);
     for (int i = 0; i < item->childCount(); ++i)
         setSubtreeCheck(item->child(i), on);
 }
 
 void AddDialog::setSubtreePriority(QTreeWidgetItem *item, int priority)
 {
-    bool isFile = item->data(0, IsFileRole).toBool();
+    bool isFile = item->data(kColFile, IsFileRole).toBool();
     if (isFile) {
-        item->setData(0, PriorityRole, priority);
-        if (priority != 0)
-            item->setData(0, PrioBeforeUncheckRole, priority);
-        item->setCheckState(0, priority == 0 ? Qt::Unchecked : Qt::Checked);
+        item->setData(kColFile, PriorityRole, priority);
+        item->setData(kColIndex, PriorityRole, priority);
+        if (priority != 0) {
+            item->setData(kColFile, PrioBeforeUncheckRole, priority);
+            item->setData(kColIndex, PrioBeforeUncheckRole, priority);
+        }
+        item->setCheckState(kColFile, priority == 0 ? Qt::Unchecked : Qt::Checked);
         updateFileText(item);
     }
     for (int i = 0; i < item->childCount(); ++i)
         setSubtreePriority(item->child(i), priority);
     if (item->childCount() > 0)
-        item->setCheckState(0, computeFolderState(item));
+        item->setCheckState(kColFile, computeFolderState(item));
 }
 
 void AddDialog::refreshAncestors(QTreeWidgetItem *item)
 {
     QTreeWidgetItem *p = item->parent();
     while (p) {
-        p->setCheckState(0, computeFolderState(p));
+        p->setCheckState(kColFile, computeFolderState(p));
         p = p->parent();
     }
 }
@@ -776,7 +836,7 @@ Qt::CheckState AddDialog::computeFolderState(QTreeWidgetItem *folder)
     bool anyOn = false, anyOff = false;
     for (int i = 0; i < folder->childCount(); ++i) {
         QTreeWidgetItem *child = folder->child(i);
-        Qt::CheckState st = child->childCount() > 0 ? computeFolderState(child) : child->checkState(0);
+        Qt::CheckState st = child->childCount() > 0 ? computeFolderState(child) : child->checkState(kColFile);
         if (st == Qt::PartiallyChecked)
             return Qt::PartiallyChecked;
         if (st == Qt::Checked) anyOn = true;
@@ -789,36 +849,36 @@ Qt::CheckState AddDialog::computeFolderState(QTreeWidgetItem *folder)
 
 void AddDialog::updateFileText(QTreeWidgetItem *item)
 {
-    if (!item->data(0, IsFileRole).toBool())
+    if (!item->data(kColFile, IsFileRole).toBool())
         return;
-    QString baseName = item->data(0, BaseNameRole).toString();
+    QString baseName = item->data(kColFile, BaseNameRole).toString();
     if (baseName.isEmpty())
-        baseName = item->text(0);
+        baseName = item->text(kColFile);
     if (baseName.isEmpty())
         return;
-    qint64 sz = item->data(0, FileSizeRole).toLongLong();
-    int prio = item->data(0, PriorityRole).toInt();
-    double prog = item->data(0, ProgressRole).toDouble();
-    int idx = item->data(0, FileIndexRole).toInt();
+    qint64 sz = item->data(kColFile, FileSizeRole).toLongLong();
+    int prio = item->data(kColFile, PriorityRole).toInt();
+    double prog = item->data(kColFile, ProgressRole).toDouble();
+    int idx = item->data(kColFile, FileIndexRole).toInt();
 
-    item->setText(0, baseName);
-    item->setText(1, Format::size(sz));
-    item->setText(2, prog <= 0.0 ? QStringLiteral("0%") : QString::number(qRound(prog * 100.0)) + QLatin1Char('%'));
-    item->setText(3, Format::priorityName(prio));
-    item->setText(4, QString::number(idx + 1));
+    item->setText(kColIndex, QString::number(idx + 1));
+    item->setText(kColFile, baseName);
+    item->setText(kColSize, Format::size(sz));
+    item->setText(kColProgress, prog <= 0.0 ? QStringLiteral("0%") : QString::number(qRound(prog * 100.0)) + QLatin1Char('%'));
+    item->setText(kColPriority, Format::priorityName(prio));
 
     if (prio == 0) {
-        item->setForeground(3, QBrush(QColor(140, 140, 140)));
+        item->setForeground(kColPriority, QBrush(QColor(140, 140, 140)));
     } else if (prio >= 6) {
-        item->setForeground(3, QBrush(QColor(220, 120, 0)));
+        item->setForeground(kColPriority, QBrush(QColor(220, 120, 0)));
     } else {
-        item->setData(3, Qt::ForegroundRole, QVariant());
+        item->setData(kColPriority, Qt::ForegroundRole, QVariant());
     }
 }
 
 void AddDialog::forEachFile(QTreeWidgetItem *item, const std::function<void(QTreeWidgetItem *)> &fn)
 {
-    if (item->data(0, IsFileRole).toBool())
+    if (item->data(kColFile, IsFileRole).toBool())
         fn(item);
     for (int i = 0; i < item->childCount(); ++i)
         forEachFile(item->child(i), fn);
@@ -835,8 +895,8 @@ void AddDialog::updateSummary()
     qint64 selected = 0, total = 0;
     int selCount = 0, allCount = 0;
     forEachFileInTree(_tree, [&](QTreeWidgetItem *item) {
-        qint64 sz = item->data(0, FileSizeRole).toLongLong();
-        int prio = item->data(0, PriorityRole).toInt();
+        qint64 sz = item->data(kColFile, FileSizeRole).toLongLong();
+        int prio = item->data(kColFile, PriorityRole).toInt();
         total += sz;
         allCount++;
         if (prio != 0) {
@@ -859,9 +919,9 @@ void AddDialog::onOk()
     bool anySelected = false;
 
     forEachFileInTree(_tree, [&](QTreeWidgetItem *item) {
-        int prio = item->data(0, PriorityRole).toInt();
-        int orig = item->data(0, OriginalPriorityRole).toInt();
-        int idx = item->data(0, FileIndexRole).toInt();
+        int prio = item->data(kColFile, PriorityRole).toInt();
+        int orig = item->data(kColFile, OriginalPriorityRole).toInt();
+        int idx = item->data(kColFile, FileIndexRole).toInt();
         if (prio != orig) {
             byPriority[prio].append(idx);
             anyChanged = true;

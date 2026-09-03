@@ -104,5 +104,7 @@ private:
     QPushButton *_okButton = nullptr;
     QPushButton *_cancelButton = nullptr;
     QMenu *_treeMenu = nullptr;
+    QAction *_actHigh = nullptr;
+    QAction *_actMaximum = nullptr;
     QTimer *_autoCloseTimer = nullptr;
 };
