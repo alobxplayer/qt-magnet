@@ -285,10 +285,15 @@ TorrentFileData TorrentFileData::parse(const QByteArray &bytes, const QString &s
             meta.version = TorrentVersion::V2;
             meta.hash = meta.hashV2;
         }
+    } else if (meta.metaVersion == 2) {
+        meta.version = hasV1Pieces ? TorrentVersion::Hybrid : TorrentVersion::V2;
+        if (!hasV1Pieces)
+            meta.hash = meta.hashV2;
     }
 
     if (meta.files.isEmpty()) {
-        meta.version = TorrentVersion::V1;
+        if (meta.version != TorrentVersion::V2 && meta.metaVersion != 2)
+            meta.version = TorrentVersion::V1;
         const auto *lengthVal = infoVal->dictGet("length");
         const auto *filesVal = infoVal->dictGet("files");
 

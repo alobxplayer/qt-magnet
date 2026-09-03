@@ -32,6 +32,7 @@ public:
         bool forceStart = true;
         QString initialCategory;
         QString initialSavePath;
+        QString initialTags;
         QStringList trackers;
     };
     ApplyParams applyParams;

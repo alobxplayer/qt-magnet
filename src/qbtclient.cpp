@@ -1,6 +1,8 @@
 #include "qbtclient.h"
 #include "config.h"
 #include "logger.h"
+#include "magnetlink.h"
+#include "torrentfile.h"
 
 #include <QCoreApplication>
 #include <QNetworkAccessManager>
