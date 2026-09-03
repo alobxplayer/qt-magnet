@@ -4,212 +4,212 @@
 <context>
     <name>AddDialog</name>
     <message>
-        <location filename="../src/adddialog.cpp" line="222"/>
+        <location filename="../src/adddialog.cpp" line="192"/>
         <source>File</source>
         <translation>Файл</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="273"/>
+        <location filename="../src/adddialog.cpp" line="247"/>
         <source>Download (Normal)</source>
         <translation>Скачивать (обычный)</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="274"/>
+        <location filename="../src/adddialog.cpp" line="248"/>
         <source>High</source>
         <translation>Высокий</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="275"/>
+        <location filename="../src/adddialog.cpp" line="249"/>
         <source>Maximum</source>
         <translation>Максимальный</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="277"/>
+        <location filename="../src/adddialog.cpp" line="251"/>
         <source>Do not download</source>
         <translation>Не скачивать</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="279"/>
+        <location filename="../src/adddialog.cpp" line="253"/>
         <source>Check all</source>
         <translation>Выбрать все</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="280"/>
+        <location filename="../src/adddialog.cpp" line="254"/>
         <source>Uncheck all</source>
         <translation>Снять выбор</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="315"/>
+        <location filename="../src/adddialog.cpp" line="289"/>
         <source>Force start</source>
         <translation>Принудительный запуск</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="336"/>
+        <location filename="../src/adddialog.cpp" line="310"/>
         <source>Connecting...</source>
         <translation>Подключение...</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="343"/>
-        <location filename="../src/adddialog.cpp" line="495"/>
+        <location filename="../src/adddialog.cpp" line="317"/>
+        <location filename="../src/adddialog.cpp" line="484"/>
         <source>Add</source>
         <translation>Добавить</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="349"/>
-        <location filename="../src/adddialog.cpp" line="458"/>
+        <location filename="../src/adddialog.cpp" line="323"/>
+        <location filename="../src/adddialog.cpp" line="443"/>
         <source>Cancel</source>
         <translation>Отмена</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="396"/>
-        <location filename="../src/adddialog.cpp" line="412"/>
-        <location filename="../src/adddialog.cpp" line="438"/>
+        <location filename="../src/adddialog.cpp" line="372"/>
+        <location filename="../src/adddialog.cpp" line="388"/>
+        <location filename="../src/adddialog.cpp" line="417"/>
         <source>Close</source>
         <translation>Закрыть</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="364"/>
+        <location filename="../src/adddialog.cpp" line="338"/>
         <source>qt-magnet - Quick Mode</source>
         <translation>qt-magnet — быстрый режим</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="180"/>
+        <location filename="../src/adddialog.cpp" line="150"/>
         <source>Protocol: %1
 Hash (v1): %2</source>
         <translation>Протокол: %1
 Хеш (v1): %2</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="182"/>
+        <location filename="../src/adddialog.cpp" line="152"/>
         <source>
 Hash (v2): %1</source>
         <translation>
 Хеш (v2): %1</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="188"/>
+        <location filename="../src/adddialog.cpp" line="158"/>
         <source>Filter files...</source>
         <translation>Фильтр файлов...</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="222"/>
+        <location filename="../src/adddialog.cpp" line="192"/>
         <source>Size</source>
         <translation>Размер</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="222"/>
+        <location filename="../src/adddialog.cpp" line="192"/>
         <source>Priority</source>
         <translation>Приоритет</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="222"/>
+        <location filename="../src/adddialog.cpp" line="192"/>
         <source>Progress</source>
         <translation>Прогресс</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="222"/>
+        <location filename="../src/adddialog.cpp" line="192"/>
         <source>#</source>
         <translation>#</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="281"/>
+        <location filename="../src/adddialog.cpp" line="255"/>
         <source>Invert check</source>
         <translation>Инвертировать выбор</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="292"/>
+        <location filename="../src/adddialog.cpp" line="266"/>
         <source>Expand all</source>
         <translation>Развернуть все</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="293"/>
+        <location filename="../src/adddialog.cpp" line="267"/>
         <source>Collapse all</source>
         <translation>Свернуть все</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="308"/>
+        <location filename="../src/adddialog.cpp" line="282"/>
         <source>Select or type category</source>
         <translation>Категория</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="310"/>
+        <location filename="../src/adddialog.cpp" line="284"/>
         <source>tag1, tag2</source>
         <translation>метка1, метка2</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="313"/>
+        <location filename="../src/adddialog.cpp" line="287"/>
         <source>Leave empty for default</source>
         <translation>По умолчанию</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="316"/>
+        <location filename="../src/adddialog.cpp" line="290"/>
         <source>Start downloading immediately, bypassing queue limits</source>
         <translation>Запуск в обход очереди</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="319"/>
+        <location filename="../src/adddialog.cpp" line="293"/>
         <source>&amp;Category:</source>
         <translation>&amp;Категория:</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="321"/>
+        <location filename="../src/adddialog.cpp" line="295"/>
         <source>&amp;Tags:</source>
         <translation>&amp;Метки:</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="323"/>
+        <location filename="../src/adddialog.cpp" line="297"/>
         <source>&amp;Save path:</source>
         <translation>&amp;Путь сохранения:</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="411"/>
-        <location filename="../src/adddialog.cpp" line="436"/>
+        <location filename="../src/adddialog.cpp" line="387"/>
+        <location filename="../src/adddialog.cpp" line="415"/>
         <source>Done.</source>
         <translation>Готово.</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="411"/>
+        <location filename="../src/adddialog.cpp" line="387"/>
         <source>Failed to force start.</source>
         <translation>Ошибка принудительного запуска.</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="436"/>
+        <location filename="../src/adddialog.cpp" line="415"/>
         <source>Done (status unverified).</source>
         <translation>Готово (статус не подтвержден).</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="484"/>
+        <location filename="../src/adddialog.cpp" line="473"/>
         <source>Update</source>
         <translation>Обновить</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="486"/>
+        <location filename="../src/adddialog.cpp" line="475"/>
         <source>Torrent already exists in client.</source>
         <translation>Торрент уже существует.</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="493"/>
+        <location filename="../src/adddialog.cpp" line="482"/>
         <source>Torrent already exists. Trackers and settings updated.</source>
         <translation>Торрент уже существует. Трекеры обновлены.</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="497"/>
+        <location filename="../src/adddialog.cpp" line="486"/>
         <source>Metadata timeout. Adding without file list.</source>
         <translation>Таймаут метаданных. Добавление без списка файлов.</translation>
     </message>
     <message>
+        <location filename="../src/adddialog.cpp" line="476"/>
         <location filename="../src/adddialog.cpp" line="487"/>
-        <location filename="../src/adddialog.cpp" line="498"/>
         <source>Files unavailable.</source>
         <translation>Список файлов недоступен.</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="504"/>
+        <location filename="../src/adddialog.cpp" line="493"/>
         <source>Metadata received.</source>
         <translation>Метаданные получены.</translation>
     </message>
     <message numerus="yes">
-        <location filename="../src/adddialog.cpp" line="645"/>
+        <location filename="../src/adddialog.cpp" line="634"/>
         <source>%n file(s)</source>
         <translation>
             <numerusform>%n файл</numerusform>
@@ -218,47 +218,47 @@ Hash (v2): %1</source>
         </translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="658"/>
+        <location filename="../src/adddialog.cpp" line="647"/>
         <source>Columns</source>
         <translation>Колонки</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="682"/>
+        <location filename="../src/adddialog.cpp" line="671"/>
         <source>Reset columns</source>
         <translation>Сбросить колонки</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="907"/>
+        <location filename="../src/adddialog.cpp" line="896"/>
         <source>Selected %1 / %2 (%3 / %4 files)</source>
         <translation>Выбрано %1 из %2 (%3 из %4 файлов)</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="935"/>
+        <location filename="../src/adddialog.cpp" line="924"/>
         <source>No files selected.</source>
         <translation>Файлы не выбраны.</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="944"/>
+        <location filename="../src/adddialog.cpp" line="933"/>
         <source>Adding torrent...</source>
         <translation>Добавление торрента...</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="944"/>
+        <location filename="../src/adddialog.cpp" line="933"/>
         <source>Updating torrent...</source>
         <translation>Обновление торрента...</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="984"/>
+        <location filename="../src/adddialog.cpp" line="973"/>
         <source>Cancelling...</source>
         <translation>Отмена...</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="1001"/>
+        <location filename="../src/adddialog.cpp" line="992"/>
         <source>Deleting torrent...</source>
         <translation>Удаление торрента...</translation>
     </message>
     <message>
-        <location filename="../src/adddialog.cpp" line="1065"/>
+        <location filename="../src/adddialog.cpp" line="1063"/>
         <source>Error: %1</source>
         <translation>Ошибка: %1</translation>
     </message>
@@ -907,98 +907,98 @@ Hash (v2): %1</source>
 <context>
     <name>Worker</name>
     <message>
-        <location filename="../src/worker.cpp" line="70"/>
+        <location filename="../src/worker.cpp" line="71"/>
         <source>Connecting...</source>
         <translation>Подключение...</translation>
     </message>
     <message>
-        <location filename="../src/worker.cpp" line="83"/>
+        <location filename="../src/worker.cpp" line="84"/>
         <source>Adding torrent file...</source>
         <translation>Добавление торрент-файла...</translation>
     </message>
     <message>
-        <location filename="../src/worker.cpp" line="100"/>
+        <location filename="../src/worker.cpp" line="101"/>
         <source>Adding magnet link...</source>
         <translation>Добавление magnet-ссылки...</translation>
     </message>
     <message>
-        <location filename="../src/worker.cpp" line="118"/>
+        <location filename="../src/worker.cpp" line="119"/>
         <source>Updating trackers...</source>
         <translation>Обновление трекеров...</translation>
     </message>
     <message>
-        <location filename="../src/worker.cpp" line="128"/>
+        <location filename="../src/worker.cpp" line="129"/>
         <source>Waiting for torrent...</source>
         <translation>Ожидание торрента...</translation>
     </message>
     <message>
-        <location filename="../src/worker.cpp" line="128"/>
+        <location filename="../src/worker.cpp" line="129"/>
         <source>Torrent already exists. Loading...</source>
         <translation>Торрент уже существует. Загрузка...</translation>
     </message>
     <message>
-        <location filename="../src/worker.cpp" line="140"/>
+        <location filename="../src/worker.cpp" line="141"/>
         <source>Torrent not found.</source>
         <translation>Торрент не найден.</translation>
     </message>
     <message>
-        <location filename="../src/worker.cpp" line="173"/>
+        <location filename="../src/worker.cpp" line="174"/>
         <source>Fetching metadata...</source>
         <translation>Получение метаданных...</translation>
     </message>
     <message>
-        <location filename="../src/worker.cpp" line="173"/>
+        <location filename="../src/worker.cpp" line="174"/>
         <source>Updating torrent metadata...</source>
         <translation>Обновление метаданных...</translation>
     </message>
     <message>
-        <location filename="../src/worker.cpp" line="176"/>
+        <location filename="../src/worker.cpp" line="177"/>
         <source>Fetching metadata (%1 s)...</source>
         <translation>Получение метаданных (%1 с)...</translation>
     </message>
     <message>
-        <location filename="../src/worker.cpp" line="201"/>
+        <location filename="../src/worker.cpp" line="202"/>
         <source>Pausing...</source>
         <translation>Пауза...</translation>
     </message>
     <message>
-        <location filename="../src/worker.cpp" line="206"/>
-        <location filename="../src/worker.cpp" line="259"/>
+        <location filename="../src/worker.cpp" line="207"/>
+        <location filename="../src/worker.cpp" line="260"/>
         <source>Force starting...</source>
         <translation>Принудительный запуск...</translation>
     </message>
     <message>
-        <location filename="../src/worker.cpp" line="210"/>
+        <location filename="../src/worker.cpp" line="211"/>
         <source>Failed to force start.</source>
         <translation>Ошибка принудительного запуска.</translation>
     </message>
     <message>
-        <location filename="../src/worker.cpp" line="232"/>
+        <location filename="../src/worker.cpp" line="233"/>
         <source>Applying priorities...</source>
         <translation>Применение приоритетов...</translation>
     </message>
     <message>
-        <location filename="../src/worker.cpp" line="240"/>
+        <location filename="../src/worker.cpp" line="241"/>
         <source>Setting category...</source>
         <translation>Установка категории...</translation>
     </message>
     <message>
-        <location filename="../src/worker.cpp" line="246"/>
+        <location filename="../src/worker.cpp" line="247"/>
         <source>Setting tags...</source>
         <translation>Установка меток...</translation>
     </message>
     <message>
-        <location filename="../src/worker.cpp" line="253"/>
+        <location filename="../src/worker.cpp" line="254"/>
         <source>Setting save path...</source>
         <translation>Установка пути сохранения...</translation>
     </message>
     <message>
-        <location filename="../src/worker.cpp" line="263"/>
+        <location filename="../src/worker.cpp" line="264"/>
         <source>Starting...</source>
         <translation>Запуск...</translation>
     </message>
     <message>
-        <location filename="../src/worker.cpp" line="271"/>
+        <location filename="../src/worker.cpp" line="272"/>
         <source>Status unverified.</source>
         <translation>Статус не подтвержден.</translation>
     </message>
