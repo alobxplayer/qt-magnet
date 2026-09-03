@@ -18,7 +18,7 @@ public:
     int     requestTimeoutSec = 20;
     bool    forceStartDefault = true;
     bool    deleteOnCancel    = true;
-    bool    autoCloseOnSuccess = true;
+    bool    autoCloseOnSuccess = false;
     int     autoCloseMs       = 2500;
     QString language;
     QString clientType        = QStringLiteral("auto");

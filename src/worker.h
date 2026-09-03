@@ -12,7 +12,7 @@
 class Worker : public QThread {
     Q_OBJECT
 public:
-    enum Task { Prepare, Apply, QuickFinish, Cleanup };
+    enum Task { Prepare, Apply, QuickFinish, Cleanup, Poll };
 
     Worker(const Config &cfg, const TorrentPayload &payload, bool quick, QObject *parent = nullptr);
     ~Worker() override;
@@ -47,6 +47,9 @@ public:
     QVector<QPair<QString, QString>> categories;
     std::optional<TorrentInfo> torrentInfo;
 
+    std::optional<TorrentInfo> pollInfo;
+    QVector<TorrentFile> pollFiles;
+
     bool resultOk = false;
 
     QbtClient *client() { return _client; }
@@ -57,6 +60,7 @@ signals:
     void applyFinished(bool success, const QString &error);
     void quickFinished(bool success, const QString &error);
     void cleanupFinished();
+    void pollFinished(bool success);
 
 protected:
     void run() override;
@@ -66,6 +70,7 @@ private:
     void doApply();
     void doQuickFinish();
     void doCleanup();
+    void doPoll();
     void sleepCancellable(int ms);
 
     Config _cfg;

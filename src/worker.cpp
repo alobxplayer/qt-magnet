@@ -58,6 +58,7 @@ void Worker::run()
     case Apply:       doApply();       break;
     case QuickFinish: doQuickFinish(); break;
     case Cleanup:     doCleanup();     break;
+    case Poll:        doPoll();        break;
     }
 
     delete _client;
@@ -284,4 +285,29 @@ void Worker::doCleanup()
         Log::write(QStringLiteral("Cleanup error: %1").arg(QString::fromUtf8(ex.what())));
     }
     emit cleanupFinished();
+}
+
+void Worker::doPoll()
+{
+    try {
+        QString targetHash = hash;
+        if (targetHash.isEmpty())
+            targetHash = _payload.hash();
+        if (targetHash.isEmpty()) {
+            emit pollFinished(false);
+            return;
+        }
+
+        _client->login();
+        pollInfo = _client->infoOne(targetHash);
+        pollFiles = _client->files(targetHash);
+        if (wasCancelled()) {
+            emit pollFinished(false);
+            return;
+        }
+        emit pollFinished(true);
+    } catch (const std::exception &ex) {
+        Log::write(QStringLiteral("poll error: %1").arg(QString::fromUtf8(ex.what())));
+        emit pollFinished(false);
+    }
 }
