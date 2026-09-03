@@ -13,6 +13,7 @@
 #include <QMessageBox>
 #include <QPainter>
 #include <QStyledItemDelegate>
+#include <QStyleOptionProgressBar>
 #include <QVBoxLayout>
 #include <QMap>
 
@@ -65,9 +66,6 @@ public:
     using QStyledItemDelegate::QStyledItemDelegate;
 
     void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override {
-        QStyleOptionViewItem opt = option;
-        initStyleOption(&opt, index);
-
         QModelIndex fileIndex = index.sibling(index.row(), kColFile);
         bool isFile = fileIndex.data(IsFileRole).toBool();
         if (!isFile) {
@@ -79,47 +77,19 @@ public:
         if (prog < 0.0) prog = 0.0;
         if (prog > 1.0) prog = 1.0;
 
-        painter->save();
-        painter->setRenderHint(QPainter::Antialiasing, true);
+        QStyleOptionProgressBar barOpt;
+        barOpt.rect = option.rect.adjusted(4, 2, -4, -2);
+        barOpt.minimum = 0;
+        barOpt.maximum = 1000;
+        barOpt.progress = qRound(prog * 1000.0);
+        barOpt.text = (prog >= 1.0) ? QStringLiteral("100%")
+                    : (prog <= 0.0) ? QStringLiteral("0%")
+                    : QString::number(prog * 100.0, 'f', 1) + QLatin1Char('%');
+        barOpt.textVisible = true;
+        barOpt.textAlignment = Qt::AlignCenter;
+        barOpt.state = option.state | QStyle::State_Enabled;
 
-        if (opt.state & QStyle::State_Selected) {
-            painter->fillRect(opt.rect, opt.palette.highlight());
-        }
-
-        QRect barRect = opt.rect.adjusted(4, 3, -4, -3);
-        if (barRect.width() > 6 && barRect.height() > 4) {
-            bool darkTheme = (opt.palette.window().color().lightness() < 128);
-            QColor grooveColor = (opt.state & QStyle::State_Selected)
-                ? opt.palette.highlight().color().darker(140)
-                : (darkTheme ? QColor(50, 50, 50) : QColor(225, 228, 232));
-            painter->setPen(Qt::NoPen);
-            painter->setBrush(grooveColor);
-            painter->drawRoundedRect(barRect, 3, 3);
-
-            int fillWidth = qRound(barRect.width() * prog);
-            if (fillWidth > 0) {
-                QRect fillRect = barRect;
-                fillRect.setWidth(fillWidth);
-                QColor chunkColor = (prog >= 1.0)
-                    ? QColor(40, 167, 69)
-                    : QColor(33, 136, 255);
-                painter->setBrush(chunkColor);
-                painter->drawRoundedRect(fillRect, 3, 3);
-            }
-
-            QString text = QString::number(prog * 100.0, 'f', 1) + QLatin1Char('%');
-            if (prog >= 1.0) text = QStringLiteral("100%");
-            else if (prog <= 0.0) text = QStringLiteral("0%");
-
-            painter->setFont(opt.font);
-            QColor textColor = (opt.state & QStyle::State_Selected)
-                ? opt.palette.highlightedText().color()
-                : (prog > 0.5 ? Qt::white : (darkTheme ? Qt::white : QColor(30, 30, 30)));
-            painter->setPen(textColor);
-            painter->drawText(barRect, Qt::AlignCenter, text);
-        }
-
-        painter->restore();
+        QApplication::style()->drawControl(QStyle::CE_ProgressBar, &barOpt, painter, option.widget);
     }
 };
 
@@ -153,7 +123,7 @@ void AddDialog::saveHeaderState()
 
 void AddDialog::buildUi()
 {
-    setWindowTitle(QString::fromUtf8(kAppTitle));
+    updateTitle();
     resize(720, 620);
     setMinimumSize(560, 480);
 
@@ -261,13 +231,17 @@ void AddDialog::buildUi()
     mainLayout->addWidget(_tree, 1);
 
     _progress = new QProgressBar(this);
-    _progress->setTextVisible(false);
+    _progress->setTextVisible(true);
+    _progress->setAlignment(Qt::AlignCenter);
     _progress->setRange(0, 0);
-    _progress->setMaximumHeight(5);
     auto *progWrap = new QHBoxLayout();
-    progWrap->setContentsMargins(12, 2, 12, 2);
+    progWrap->setContentsMargins(12, 4, 12, 4);
     progWrap->addWidget(_progress);
     mainLayout->addLayout(progWrap);
+
+    _pollTimer = new QTimer(this);
+    _pollTimer->setInterval(1000);
+    connect(_pollTimer, &QTimer::timeout, this, &AddDialog::onPollTick);
 
     _treeMenu = new QMenu(this);
     _treeMenu->addAction(tr("Download (Normal)"), this, [this]{ setPriority(1); });
@@ -378,6 +352,7 @@ void AddDialog::startPrepare()
     connect(_worker, &Worker::quickFinished, this, &AddDialog::onQuickFinished, Qt::QueuedConnection);
     connect(_worker, &Worker::applyFinished, this, &AddDialog::onApplyFinished, Qt::QueuedConnection);
     connect(_worker, &Worker::cleanupFinished, this, &AddDialog::onCleanupFinished, Qt::QueuedConnection);
+    connect(_worker, &Worker::pollFinished, this, &AddDialog::onPollFinished, Qt::QueuedConnection);
     _worker->start();
 }
 
@@ -388,6 +363,7 @@ void AddDialog::onStatus(const QString &text)
 
 void AddDialog::onPrepareFinished(bool success, const QString &error)
 {
+    updateTitle();
     if (!success || _worker->wasCancelled()) {
         if (_worker->wasCancelled()) {
             cleanupAndClose();
@@ -431,15 +407,24 @@ void AddDialog::onApplyFinished(bool success, const QString &error)
 
     _phase = Done;
     _exitCode = _worker->resultOk ? 0 : 1;
-    _progress->setRange(0, 100);
-    _progress->setValue(100);
+    _worker->existed = true;
+
+    _tree->setColumnHidden(kColProgress, false);
+    _tree->setColumnHidden(kColPriority, false);
+
     _statusLabel->setText(_worker->resultOk ? tr("Done.") : tr("Done (status unverified)."));
     _okButton->hide();
     _cancelButton->setText(tr("Close"));
     _cancelButton->setEnabled(true);
     _cancelButton->setDefault(true);
-    if (_cfg.autoCloseOnSuccess && _worker->resultOk)
+
+    if (_cfg.autoCloseOnSuccess && _worker->resultOk) {
         scheduleClose();
+    } else {
+        if (_pollTimer)
+            _pollTimer->start();
+        onPollTick();
+    }
 }
 
 void AddDialog::onCleanupFinished()
@@ -476,9 +461,13 @@ void AddDialog::populateInteractive(const QVector<TorrentFile> &files)
         _nameLabel->setText(_payload.prettyName());
     }
 
+    updateTitle();
     bool existed = (_worker && _worker->existed);
     _tree->setColumnHidden(kColProgress, !existed);
     _tree->setColumnHidden(kColPriority, !existed);
+    if (existed && _pollTimer) {
+        _pollTimer->start();
+    }
 
     if (_worker->existed) {
         _okButton->setText(tr("Update"));
@@ -988,6 +977,8 @@ void AddDialog::onCancel()
 
 void AddDialog::cleanupAndClose()
 {
+    if (_pollTimer)
+        _pollTimer->stop();
     _exitCode = 3;
     if (_worker) {
         _worker->wait();
@@ -1011,6 +1002,11 @@ void AddDialog::cleanupAndClose()
 
 void AddDialog::closeEvent(QCloseEvent *e)
 {
+    if (_pollTimer)
+        _pollTimer->stop();
+    if (_autoCloseTimer)
+        _autoCloseTimer->stop();
+
     if (_phase == Done) {
         e->accept();
         return;
@@ -1025,6 +1021,8 @@ void AddDialog::closeEvent(QCloseEvent *e)
 
 void AddDialog::reject()
 {
+    if (_pollTimer)
+        _pollTimer->stop();
     if (_phase == Done) {
         QDialog::reject();
         return;
@@ -1066,3 +1064,85 @@ void AddDialog::showError(const QString &msg)
     _cancelButton->setEnabled(true);
     QMessageBox::critical(this, QString::fromUtf8(kAppTitle), msg);
 }
+
+void AddDialog::updateTitle()
+{
+    QString verTag;
+    TorrentVersion ver = _payload.version();
+    if (_worker && _worker->torrentInfo) {
+        if (!_worker->torrentInfo->infoHashV2.isEmpty() && !_worker->torrentInfo->infoHashV1.isEmpty())
+            ver = TorrentVersion::Hybrid;
+        else if (!_worker->torrentInfo->infoHashV2.isEmpty())
+            ver = TorrentVersion::V2;
+    }
+    switch (ver) {
+    case TorrentVersion::V2:
+        verTag = QStringLiteral("[v2]");
+        break;
+    case TorrentVersion::Hybrid:
+        verTag = QStringLiteral("[Hybrid]");
+        break;
+    default:
+        verTag = QStringLiteral("[v1]");
+        break;
+    }
+
+    QString name = (_worker && _worker->torrentInfo && !_worker->torrentInfo->name.isEmpty())
+                       ? _worker->torrentInfo->name
+                       : _payload.prettyName();
+    if (!name.isEmpty() && name != QLatin1String("torrent")) {
+        setWindowTitle(QStringLiteral("qt-magnet %1 - %2").arg(verTag, name));
+    } else {
+        setWindowTitle(QStringLiteral("qt-magnet %1").arg(verTag));
+    }
+}
+
+void AddDialog::onPollTick()
+{
+    if (!_worker || _worker->isRunning() || _worker->wasCancelled())
+        return;
+    if (!_worker->existed || (_worker->hash.isEmpty() && _payload.hash().isEmpty()))
+        return;
+
+    _worker->setTask(Worker::Poll);
+    _worker->start();
+}
+
+void AddDialog::onPollFinished(bool success)
+{
+    if (!success || !_worker)
+        return;
+
+    if (_worker->pollInfo.has_value()) {
+        const TorrentInfo &ti = _worker->pollInfo.value();
+        double totalProg = ti.progress;
+        _progress->setRange(0, 1000);
+        _progress->setValue(qRound(totalProg * 1000.0));
+        _progress->setFormat(QString::number(totalProg * 100.0, 'f', 1) + QLatin1Char('%'));
+
+        QString stateStr = QbtClient::stateString(ti.state);
+        _statusLabel->setText(QStringLiteral("%1 (%2)")
+            .arg(stateStr, QString::number(totalProg * 100.0, 'f', 1) + QLatin1Char('%')));
+    }
+
+    if (!_worker->pollFiles.isEmpty()) {
+        QMap<int, double> progressByIndex;
+        for (const TorrentFile &f : _worker->pollFiles)
+            progressByIndex[f.index] = f.progress;
+
+        _blockTreeSignals = true;
+        forEachFileInTree(_tree, [&](QTreeWidgetItem *item) {
+            int idx = item->data(kColFile, FileIndexRole).toInt();
+            if (progressByIndex.contains(idx)) {
+                double p = progressByIndex.value(idx);
+                item->setData(kColFile, ProgressRole, p);
+                item->setData(kColIndex, ProgressRole, p);
+                item->setData(kColProgress, ProgressRole, p);
+                updateFileText(item);
+            }
+        });
+        _blockTreeSignals = false;
+        _tree->viewport()->update();
+    }
+}
+

@@ -52,11 +52,14 @@ private slots:
     void onHeaderContextMenu(const QPoint &pos);
     void onTreeItemChanged(QTreeWidgetItem *item, int column);
     void updateSummary();
+    void onPollTick();
+    void onPollFinished(bool success);
 
 private:
     enum Phase { Preparing, Ready, Applying, Done };
 
     void buildUi();
+    void updateTitle();
     void saveHeaderState();
     void startPrepare();
     void populateInteractive(const QVector<TorrentFile> &files);
@@ -107,4 +110,5 @@ private:
     QAction *_actHigh = nullptr;
     QAction *_actMaximum = nullptr;
     QTimer *_autoCloseTimer = nullptr;
+    QTimer *_pollTimer = nullptr;
 };
