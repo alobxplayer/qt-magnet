@@ -8,6 +8,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QMetaType>
+#include <QNetworkCookie>
 #include <functional>
 #include <optional>
 #include <exception>
@@ -121,6 +122,12 @@ public:
 
     static QString stateString(const QString &state);
 
+    QList<QNetworkCookie> cookies() const;
+    void setCookies(const QList<QNetworkCookie> &cookies);
+    QString transmissionSessionId() const { return _transmissionSessionId; }
+    void setTransmissionSessionId(const QString &id) { _transmissionSessionId = id; }
+    bool hasSessionCookie();
+
 private:
     const Config &_cfg;
     std::function<void(const QString &)> _log;
@@ -158,7 +165,6 @@ private:
                                   const QString &fileFieldName, const QString &fileName,
                                   const QByteArray &fileData, const QString &fileContentType,
                                   bool allowRelogin = true);
-    bool hasSessionCookie();
     bool verifyAuthenticated();
     void callStartStop(const QString &hash, bool start);
     static QString esc(const QString &s);

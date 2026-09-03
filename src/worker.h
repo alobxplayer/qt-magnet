@@ -80,4 +80,6 @@ private:
     QbtClient *_client = nullptr;
     std::atomic<bool> _cancelRequested{false};
     QbtClient::ClientType _detectedType = QbtClient::ClientType::Auto;
+    QList<QNetworkCookie> _sessionCookies;
+    QString _transmissionSessionId;
 };

@@ -162,7 +162,7 @@ QbtClient::RawResponse QbtClient::execRaw(const std::function<QNetworkReply *()>
     resp.errorString = reply->errorString();
     resp.timedOut = timedOut;
     resp.rawHeaders = reply->rawHeaderPairs();
-    delete reply;
+    reply->deleteLater();
 
     if (_isCancelled && _isCancelled())
         throw QbtException(QCoreApplication::translate("QbtClient", "Operation cancelled."), 0, QString());
@@ -183,6 +183,11 @@ QString QbtClient::exec(const std::function<QNetworkReply *()> &make, const QStr
     const QString text = QString::fromUtf8(r.body);
     if (r.statusCode == 403 && allowRelogin) {
         trace(QStringLiteral("403 on %1: session expired, logging in again").arg(path));
+        if (_nam && _nam->cookieJar()) {
+            _nam->cookieJar()->deleteLater();
+            _nam->setCookieJar(new QNetworkCookieJar(_nam));
+        }
+        _transmissionSessionId.clear();
         login();
         return exec(make, path, false);
     }
@@ -263,7 +268,7 @@ QString QbtClient::postMultipartWithFile(const QString &path, const QVector<QPai
 
 bool QbtClient::hasSessionCookie()
 {
-    if (!_nam->cookieJar())
+    if (!_nam || !_nam->cookieJar())
         return false;
     const QList<QNetworkCookie> cookies = _nam->cookieJar()->cookiesForUrl(QUrl(_base));
     for (const QNetworkCookie &c : cookies) {
@@ -271,6 +276,20 @@ bool QbtClient::hasSessionCookie()
             return true;
     }
     return false;
+}
+
+QList<QNetworkCookie> QbtClient::cookies() const
+{
+    if (!_nam || !_nam->cookieJar())
+        return {};
+    return _nam->cookieJar()->cookiesForUrl(QUrl(_base));
+}
+
+void QbtClient::setCookies(const QList<QNetworkCookie> &cookies)
+{
+    if (!_nam || !_nam->cookieJar() || cookies.isEmpty())
+        return;
+    _nam->cookieJar()->setCookiesFromUrl(cookies, QUrl(_base));
 }
 
 bool QbtClient::verifyAuthenticated()
@@ -291,6 +310,10 @@ void QbtClient::loginQBittorrent()
             return;
         }
         throw QbtException(QCoreApplication::translate("QbtClient", "API key authentication failed."), 401, QString());
+    }
+
+    if (hasSessionCookie()) {
+        return;
     }
 
     const QString pass = _cfg.getPassword();
@@ -1736,7 +1759,7 @@ QVector<TorrentFile> QbtClient::waitForMetadata(const QString &hash, int timeout
             return list;
         }
 
-        if (nudgeStart) {
+        if (nudgeStart && !nudged) {
             try {
                 const auto t = infoOne(hash);
                 if (t && t->isStopped()) {

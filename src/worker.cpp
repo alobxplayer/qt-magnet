@@ -60,6 +60,10 @@ void Worker::run()
         _client->clientType = _detectedType;
         _client->detectedType = _detectedType;
     }
+    if (!_sessionCookies.isEmpty())
+        _client->setCookies(_sessionCookies);
+    if (!_transmissionSessionId.isEmpty())
+        _client->setTransmissionSessionId(_transmissionSessionId);
 
     switch (_task) {
     case Prepare:     doPrepare();     break;
@@ -68,6 +72,9 @@ void Worker::run()
     case Cleanup:     doCleanup();     break;
     case Poll:        doPoll();        break;
     }
+
+    _sessionCookies = _client->cookies();
+    _transmissionSessionId = _client->transmissionSessionId();
 
     delete _client;
     _client = nullptr;
@@ -307,7 +314,8 @@ void Worker::doPoll()
             return;
         }
 
-        _client->login();
+        if (!_client->hasSessionCookie() && _transmissionSessionId.isEmpty())
+            _client->login();
         pollInfo = _client->infoOne(targetHash);
         pollFiles = _client->files(targetHash);
         if (wasCancelled()) {
