@@ -32,6 +32,7 @@ private:
     void buildUi();
     void loadValues();
     void refreshHandlerStatus();
+    void updateAuthModeVisibility();
     QWidget *buildConnectionGroup();
     QWidget *buildHandlerGroup();
     QWidget *buildBehaviorGroup();
@@ -39,11 +40,18 @@ private:
     Config &_cfg;
 
     QComboBox *_clientType = nullptr;
+    QComboBox *_authMode = nullptr;
     QLineEdit *_host = nullptr;
     QSpinBox *_port = nullptr;
     QCheckBox *_https = nullptr;
+    QLabel *_userLabel = nullptr;
     QLineEdit *_username = nullptr;
+    QLabel *_passLabel = nullptr;
+    QWidget *_passWidget = nullptr;
     QLineEdit *_password = nullptr;
+    QLabel *_apiKeyLabel = nullptr;
+    QWidget *_apiKeyWidget = nullptr;
+    QLineEdit *_apiKey = nullptr;
     QPushButton *_testButton = nullptr;
     QLabel *_testResult = nullptr;
     QThread *_testThread = nullptr;

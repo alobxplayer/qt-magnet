@@ -17,6 +17,7 @@
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSpinBox>
+#include <QStandardItemModel>
 #include <QThread>
 #include <QUrl>
 #include <QVBoxLayout>
@@ -134,9 +135,18 @@ QWidget *SettingsDialog::buildConnectionGroup()
     _port->setRange(1, 65535);
     form->addRow(tr("&Port:"), _port);
 
+    _authMode = new QComboBox(this);
+    _authMode->addItem(tr("Username / Password"), QStringLiteral("password"));
+    _authMode->addItem(tr("API Key (qBittorrent v6+)"), QStringLiteral("apikey"));
+    auto *authLabel = new QLabel(tr("&Authentication:"), this);
+    authLabel->setBuddy(_authMode);
+    form->addRow(authLabel, _authMode);
+
     _username = new QLineEdit(this);
     _username->setClearButtonEnabled(true);
-    form->addRow(tr("&Username:"), _username);
+    _userLabel = new QLabel(tr("&Username:"), this);
+    _userLabel->setBuddy(_username);
+    form->addRow(_userLabel, _username);
 
     _password = new QLineEdit(this);
     _password->setEchoMode(QLineEdit::Password);
@@ -146,11 +156,35 @@ QWidget *SettingsDialog::buildConnectionGroup()
         _password->setEchoMode(on ? QLineEdit::Normal : QLineEdit::Password);
     });
     auto *passRow = new QHBoxLayout();
+    passRow->setContentsMargins(0, 0, 0, 0);
     passRow->addWidget(_password, 1);
     passRow->addWidget(showPass);
-    auto *passLabel = new QLabel(tr("&Password:"), this);
-    passLabel->setBuddy(_password);
-    form->addRow(passLabel, passRow);
+    _passWidget = new QWidget(this);
+    _passWidget->setLayout(passRow);
+    _passLabel = new QLabel(tr("&Password:"), this);
+    _passLabel->setBuddy(_password);
+    form->addRow(_passLabel, _passWidget);
+
+    _apiKey = new QLineEdit(this);
+    _apiKey->setEchoMode(QLineEdit::Password);
+    _apiKey->setClearButtonEnabled(true);
+    _apiKey->setPlaceholderText(tr("Enter API key"));
+    auto *showApiKey = new QCheckBox(tr("Show"), this);
+    connect(showApiKey, &QCheckBox::toggled, this, [this](bool on) {
+        _apiKey->setEchoMode(on ? QLineEdit::Normal : QLineEdit::Password);
+    });
+    auto *apiRow = new QHBoxLayout();
+    apiRow->setContentsMargins(0, 0, 0, 0);
+    apiRow->addWidget(_apiKey, 1);
+    apiRow->addWidget(showApiKey);
+    _apiKeyWidget = new QWidget(this);
+    _apiKeyWidget->setLayout(apiRow);
+    _apiKeyLabel = new QLabel(tr("API &Key:"), this);
+    _apiKeyLabel->setBuddy(_apiKey);
+    form->addRow(_apiKeyLabel, _apiKeyWidget);
+
+    connect(_authMode, &QComboBox::currentIndexChanged, this, &SettingsDialog::updateAuthModeVisibility);
+    connect(_clientType, &QComboBox::currentIndexChanged, this, &SettingsDialog::updateAuthModeVisibility);
 
     _testButton = new QPushButton(tr("Test connection"), this);
     connect(_testButton, &QPushButton::clicked, this, &SettingsDialog::testConnection);
@@ -164,6 +198,34 @@ QWidget *SettingsDialog::buildConnectionGroup()
     form->addRow(QString(), testRow);
 
     return g;
+}
+
+void SettingsDialog::updateAuthModeVisibility()
+{
+    QString ctype = _clientType->currentData().toString();
+    bool qbtSupported = (ctype == QLatin1String("auto") || ctype == QLatin1String("qbittorrent"));
+
+    int apiKeyIdx = _authMode->findData(QStringLiteral("apikey"));
+    if (apiKeyIdx >= 0) {
+        auto *model = qobject_cast<QStandardItemModel *>(_authMode->model());
+        if (model) {
+            auto *item = model->item(apiKeyIdx);
+            if (item)
+                item->setEnabled(qbtSupported);
+        }
+    }
+    if (!qbtSupported && _authMode->currentData().toString() == QLatin1String("apikey")) {
+        _authMode->setCurrentIndex(_authMode->findData(QStringLiteral("password")));
+    }
+
+    bool isApiKey = (_authMode->currentData().toString() == QLatin1String("apikey"));
+    _userLabel->setVisible(!isApiKey);
+    _username->setVisible(!isApiKey);
+    _passLabel->setVisible(!isApiKey);
+    _passWidget->setVisible(!isApiKey);
+
+    _apiKeyLabel->setVisible(isApiKey);
+    _apiKeyWidget->setVisible(isApiKey);
 }
 
 QWidget *SettingsDialog::buildHandlerGroup()
@@ -281,8 +343,12 @@ void SettingsDialog::loadValues()
     _host->setText(_cfg.host);
     _port->setValue(qBound(1, _cfg.port, 65535));
     _https->setChecked(_cfg.useHttps);
+    int authIdx = _authMode->findData(_cfg.authMode);
+    _authMode->setCurrentIndex(authIdx >= 0 ? authIdx : 0);
     _username->setText(_cfg.username);
     _password->setText(_cfg.getPassword());
+    _apiKey->setText(_cfg.getApiKey());
+    updateAuthModeVisibility();
 
     _quickMode->setChecked(_cfg.quickMode);
     _forceStart->setChecked(_cfg.forceStartDefault);
@@ -329,8 +395,10 @@ void SettingsDialog::onSave()
     newCfg.host = host;
     newCfg.port = _port->value();
     newCfg.useHttps = _https->isChecked();
+    newCfg.authMode = _authMode->currentData().toString();
     newCfg.username = _username->text().trimmed();
     newCfg.setPassword(_password->text());
+    newCfg.setApiKey(_apiKey->text().trimmed());
 
     newCfg.quickMode = _quickMode->isChecked();
     newCfg.forceStartDefault = _forceStart->isChecked();
@@ -371,8 +439,10 @@ void SettingsDialog::testConnection()
     probe.host = _host->text().trimmed();
     probe.port = _port->value();
     probe.useHttps = _https->isChecked();
+    probe.authMode = _authMode->currentData().toString();
     probe.username = _username->text().trimmed();
     probe.password = _password->text();
+    probe.apiKey = _apiKey->text().trimmed();
     probe.requestTimeoutSec = _requestTimeout->value();
 
     _testCancel = std::make_shared<std::atomic<bool>>(false);
@@ -382,12 +452,14 @@ void SettingsDialog::testConnection()
     _testThread = QThread::create([self, probe, cancelToken]() {
         QString message;
         bool ok = false;
+        QbtClient::ClientType detected = QbtClient::ClientType::Auto;
         try {
             QbtClient client(probe, [](const QString &) {}, [cancelToken]() {
                 return cancelToken ? cancelToken->load() : false;
             });
             client.login();
             client.fetchServerInfo();
+            detected = client.detectedType;
             ok = true;
             message = tr("OK (%1, %2)").arg(client.appVersion, client.apiVersion);
         } catch (const QbtException &ex) {
@@ -399,12 +471,15 @@ void SettingsDialog::testConnection()
         if (!self)
             return;
 
-        QMetaObject::invokeMethod(self, [self, ok, message]() {
+        QMetaObject::invokeMethod(self, [self, ok, message, detected]() {
             if (!self)
                 return;
             setStatusLabelColor(self->_testResult, ok, self->palette());
             self->_testResult->setText(message);
             self->_testButton->setEnabled(true);
+            if (ok && detected == QbtClient::ClientType::QBittorrent) {
+                self->updateAuthModeVisibility();
+            }
         }, Qt::QueuedConnection);
     });
     connect(_testThread, &QThread::finished, _testThread, &QObject::deleteLater);
