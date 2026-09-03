@@ -588,7 +588,19 @@ void MockServerWorker::handleQBittorrent(QTcpSocket *socket, const HttpRequest &
     if (req.path == QLatin1String("/api/v2/torrents/addTags")) {
         auto form = parseFormUrlEncoded(req.body);
         QString hash = form.value(QStringLiteral("hashes")).toLower();
-        if (_torrents.contains(hash)) _torrents[hash].tags = form.value(QStringLiteral("tags"));
+        if (_torrents.contains(hash)) {
+            QString toAdd = form.value(QStringLiteral("tags"));
+            QStringList addList = toAdd.split(QLatin1Char(','), Qt::SkipEmptyParts);
+            QStringList curList;
+            for (const QString &c : _torrents[hash].tags.split(QLatin1Char(','), Qt::SkipEmptyParts))
+                curList.append(c.trimmed());
+            for (const QString &a : addList) {
+                QString trimmed = a.trimmed();
+                if (!curList.contains(trimmed))
+                    curList.append(trimmed);
+            }
+            _torrents[hash].tags = curList.join(QStringLiteral(", "));
+        }
         sendResponse(socket, 200, QStringLiteral("OK"), QByteArrayLiteral("Ok."));
         return;
     }
@@ -598,10 +610,12 @@ void MockServerWorker::handleQBittorrent(QTcpSocket *socket, const HttpRequest &
         if (_torrents.contains(hash)) {
             QString toRemove = form.value(QStringLiteral("tags"));
             QStringList remList = toRemove.split(QLatin1Char(','), Qt::SkipEmptyParts);
-            QStringList curList = _torrents[hash].tags.split(QLatin1Char(','), Qt::SkipEmptyParts);
+            QStringList curList;
+            for (const QString &c : _torrents[hash].tags.split(QLatin1Char(','), Qt::SkipEmptyParts))
+                curList.append(c.trimmed());
             for (const QString &r : remList)
                 curList.removeAll(r.trimmed());
-            _torrents[hash].tags = curList.join(QLatin1Char(','));
+            _torrents[hash].tags = curList.join(QStringLiteral(", "));
         }
         sendResponse(socket, 200, QStringLiteral("OK"), QByteArrayLiteral("Ok."));
         return;

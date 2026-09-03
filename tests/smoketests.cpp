@@ -919,7 +919,7 @@ static void runAria2V2RejectionAndHybridFallbackTests(MockTorrentServer &server)
     check(v2MagnetRejected, QStringLiteral("Aria2: Pure v2 magnet rejected with informative message"));
 
     QByteArray pureV2Torrent = QByteArrayLiteral(
-        "d8:announce18:http://tr1.org/ann4:infod9:file tree9:file1.txtd0:d6:lengthi1048576e11:pieces root32:00000000000000000000000000000001eee12:meta versioni2e4:name13:purev2torrent12:piece lengthi16384ee");
+        "d8:announce18:http://tr1.org/ann4:infod9:file treed9:file1.txtd0:d6:lengthi1048576e11:pieces root32:00000000000000000000000000000001eeee12:meta versioni2e4:name13:purev2torrent12:piece lengthi16384ee");
     bool v2TorrentRejected = false;
     try {
         client.addTorrentFile(pureV2Torrent, QStringLiteral("purev2.torrent"), false, false, QString(), QString(), QString(), QString());
@@ -929,7 +929,7 @@ static void runAria2V2RejectionAndHybridFallbackTests(MockTorrentServer &server)
     check(v2TorrentRejected, QStringLiteral("Aria2: Pure v2 .torrent file rejected with informative message"));
 
     QByteArray hybridTorrent = QByteArrayLiteral(
-        "d8:announce18:http://tr1.org/ann4:infod6:lengthi1048576e4:name10:hybrid.iso12:piece lengthi16384e6:pieces20:123456789012345678909:file tree10:hybrid.isod0:d6:lengthi1048576e11:pieces root32:00000000000000000000000000000001eee12:meta versioni2eee");
+        "d8:announce18:http://tr1.org/ann4:infod6:lengthi1048576e4:name10:hybrid.iso12:piece lengthi16384e6:pieces20:123456789012345678909:file treed10:hybrid.isod0:d6:lengthi1048576e11:pieces root32:00000000000000000000000000000001eeee12:meta versioni2eee");
     bool hybridFallbackOk = false;
     try {
         client.addTorrentFile(hybridTorrent, QStringLiteral("hybrid.torrent"), false, false, QString(), QString(), QString(), QString());
