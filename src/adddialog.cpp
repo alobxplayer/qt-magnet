@@ -46,18 +46,31 @@ public:
             return !isAsc;
 
         if (col == kColIndex) {
-            return data(kColFile, FileIndexRole).toInt() < other.data(kColFile, FileIndexRole).toInt();
+            int thisIdx = data(kColFile, FileIndexRole).toInt();
+            int otherIdx = other.data(kColFile, FileIndexRole).toInt();
+            if (thisIdx != otherIdx)
+                return thisIdx < otherIdx;
+        } else if (col == kColSize) {
+            qint64 thisSz = data(kColFile, FileSizeRole).toLongLong();
+            qint64 otherSz = other.data(kColFile, FileSizeRole).toLongLong();
+            if (thisSz != otherSz)
+                return thisSz < otherSz;
+        } else if (col == kColProgress) {
+            double thisProg = data(kColFile, ProgressRole).toDouble();
+            double otherProg = other.data(kColFile, ProgressRole).toDouble();
+            if (qAbs(thisProg - otherProg) > 1e-6)
+                return thisProg < otherProg;
+        } else if (col == kColPriority) {
+            int thisPrio = data(kColFile, PriorityRole).toInt();
+            int otherPrio = other.data(kColFile, PriorityRole).toInt();
+            if (thisPrio != otherPrio)
+                return thisPrio < otherPrio;
+        } else {
+            int cmp = text(col).localeAwareCompare(other.text(col));
+            if (cmp != 0)
+                return cmp < 0;
         }
-        if (col == kColSize) {
-            return data(kColFile, FileSizeRole).toLongLong() < other.data(kColFile, FileSizeRole).toLongLong();
-        }
-        if (col == kColProgress) {
-            return data(kColFile, ProgressRole).toDouble() < other.data(kColFile, ProgressRole).toDouble();
-        }
-        if (col == kColPriority) {
-            return data(kColFile, PriorityRole).toInt() < other.data(kColFile, PriorityRole).toInt();
-        }
-        return text(col).localeAwareCompare(other.text(col)) < 0;
+        return text(kColFile).localeAwareCompare(other.text(kColFile)) < 0;
     }
 };
 
@@ -616,10 +629,19 @@ void AddDialog::buildTree(const QVector<TorrentFile> &files)
         }
     }
 
+    std::function<void(QTreeWidgetItem *)> initFolderCheck = [&](QTreeWidgetItem *folder) {
+        for (int i = 0; i < folder->childCount(); ++i) {
+            QTreeWidgetItem *child = folder->child(i);
+            if (!child->data(kColFile, IsFileRole).toBool())
+                initFolderCheck(child);
+        }
+        folder->setCheckState(kColFile, computeFolderState(folder));
+    };
     for (int i = 0; i < _tree->topLevelItemCount(); ++i) {
-        computeFolder(_tree->topLevelItem(i));
-        if (!_tree->topLevelItem(i)->data(kColFile, IsFileRole).toBool())
-            _tree->topLevelItem(i)->setCheckState(kColFile, computeFolderState(_tree->topLevelItem(i)));
+        QTreeWidgetItem *item = _tree->topLevelItem(i);
+        computeFolder(item);
+        if (!item->data(kColFile, IsFileRole).toBool())
+            initFolderCheck(item);
     }
 
     if (_tree->topLevelItemCount() <= 2)
@@ -852,7 +874,7 @@ Qt::CheckState AddDialog::computeFolderState(QTreeWidgetItem *folder)
     bool anyOn = false, anyOff = false;
     for (int i = 0; i < folder->childCount(); ++i) {
         QTreeWidgetItem *child = folder->child(i);
-        Qt::CheckState st = child->childCount() > 0 ? computeFolderState(child) : child->checkState(kColFile);
+        Qt::CheckState st = child->checkState(kColFile);
         if (st == Qt::PartiallyChecked)
             return Qt::PartiallyChecked;
         if (st == Qt::Checked) anyOn = true;
