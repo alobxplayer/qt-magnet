@@ -34,7 +34,7 @@ chmod +x build.sh
 ./build.sh --test			# build and run smoke tests
 ```
 
-## Usage (GUI flags)
+## Usage (GUI flags) (GUI flags is used only for testing)
 
 ```
 qt-magnet "magnet:?xt=urn:btih:…"   add a magnet link (default action)
