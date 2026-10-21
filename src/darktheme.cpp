@@ -125,8 +125,13 @@ void apply(QApplication &app)
         g_initialized = true;
     }
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
     const bool dark = app.styleHints()
                       && app.styleHints()->colorScheme() == Qt::ColorScheme::Dark;
+#else
+    // Qt < 6.5 has no color scheme API; assume light and keep the native style.
+    const bool dark = false;
+#endif
     g_dark = dark;
 
     if (dark && g_initialStyle == QLatin1String("windowsvista")) {

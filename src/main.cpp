@@ -270,9 +270,11 @@ int main(int argc, char *argv[])
     app.setWindowIcon(QIcon(QStringLiteral(":/app.ico")));
 
     DarkTheme::apply(app);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
     QObject::connect(app.styleHints(), &QStyleHints::colorSchemeChanged, &app, [&app](Qt::ColorScheme) {
         DarkTheme::apply(app);
     });
+#endif
 
     qInstallMessageHandler(messageHandler);
     Log::write(QStringLiteral("Startup: %1").arg(app.arguments().join(QLatin1Char(' '))));
