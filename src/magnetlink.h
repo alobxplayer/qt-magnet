@@ -17,6 +17,8 @@ public:
     QString versionString() const;
     QString prettyName() const;
     static bool looksLikeMagnet(const QString &s);
+    // Extract unique magnet URIs from arbitrary pasted/dropped text.
+    static QStringList findMagnets(const QString &text);
     static MagnetLink parse(const QString &uri);
     static QString base32ToHex(const QString &b32);
     static QSet<int> parseSelectOnly(const QString &soStr);

@@ -6,6 +6,9 @@
 
 namespace {
 
+// Sanity cap for file index ranges from a magnet's so= parameter.
+constexpr int kMaxSelectRange = 10000;
+
 bool isHex(const QString &s)
 {
     if (s.isEmpty())
@@ -62,12 +65,7 @@ void takeExactTopic(MagnetLink &m, const QString &val)
 
 QString MagnetLink::versionString() const
 {
-    switch (version) {
-    case TorrentVersion::V1:     return QStringLiteral("v1");
-    case TorrentVersion::V2:     return QStringLiteral("v2");
-    case TorrentVersion::Hybrid: return QStringLiteral("Hybrid (v1+v2)");
-    }
-    return QStringLiteral("v1");
+    return torrentVersionString(version);
 }
 
 QString MagnetLink::prettyName() const
@@ -86,6 +84,26 @@ bool MagnetLink::looksLikeMagnet(const QString &s)
         trimmed = trimmed.mid(1, trimmed.length() - 2).trimmed();
     return trimmed.startsWith(QLatin1String("magnet:"), Qt::CaseInsensitive)
         || trimmed.startsWith(QLatin1String("magnet%3a"), Qt::CaseInsensitive);
+}
+
+QStringList MagnetLink::findMagnets(const QString &text)
+{
+    // Magnet URIs never contain whitespace, so whitespace-separated tokens
+    // are the extraction units; strip quoting/punctuation debris around them.
+    QStringList result;
+    const QStringList tokens = text.simplified().split(QLatin1Char(' '), Qt::SkipEmptyParts);
+    static const QString kJunk = QStringLiteral("\"'<>()[];,.");
+    for (QString tok : tokens) {
+        while (!tok.isEmpty() && kJunk.contains(tok.front()))
+            tok.remove(0, 1);
+        while (!tok.isEmpty() && kJunk.contains(tok.back()))
+            tok.chop(1);
+        if (tok.isEmpty())
+            continue;
+        if (looksLikeMagnet(tok) && !result.contains(tok))
+            result.append(tok);
+    }
+    return result;
 }
 
 MagnetLink MagnetLink::parse(const QString &uri)
@@ -149,7 +167,7 @@ QSet<int> MagnetLink::parseSelectOnly(const QString &soStr)
             bool ok1 = false, ok2 = false;
             int start = tok.left(dash).trimmed().toInt(&ok1);
             int end = tok.mid(dash + 1).trimmed().toInt(&ok2);
-            if (ok1 && ok2 && start >= 0 && start <= end && (end - start) < 10000) {
+            if (ok1 && ok2 && start >= 0 && start <= end && (end - start) < kMaxSelectRange) {
                 for (int i = start; i <= end; ++i)
                     indices.insert(i);
             }

@@ -513,8 +513,37 @@ void MockServerWorker::handleQBittorrent(QTcpSocket *socket, const HttpRequest &
         sendResponse(socket, 200, QStringLiteral("OK"), QByteArrayLiteral("Ok."));
         return;
     }
+    if (req.path == QLatin1String("/api/v2/torrents/trackers")) {
+        QString hash = req.queryParams.value(QStringLiteral("hash")).toLower();
+        QJsonArray arr;
+        if (_torrents.contains(hash)) {
+            // Real qBittorrent reports DHT/PEX/LSD pseudo-trackers here.
+            QJsonObject dht, pex, lsd;
+            dht[QStringLiteral("url")] = QStringLiteral("** [DHT] **");
+            pex[QStringLiteral("url")] = QStringLiteral("** [PeX] **");
+            lsd[QStringLiteral("url")] = QStringLiteral("** [LSD] **");
+            dht[QStringLiteral("tier")] = pex[QStringLiteral("tier")] = lsd[QStringLiteral("tier")] = 0;
+            dht[QStringLiteral("status")] = pex[QStringLiteral("status")] = lsd[QStringLiteral("status")] = 0;
+            arr.append(dht);
+            arr.append(pex);
+            arr.append(lsd);
+            for (const auto &u : _torrents[hash].trackers) {
+                QJsonObject o;
+                o[QStringLiteral("url")] = u;
+                o[QStringLiteral("tier")] = 0;
+                o[QStringLiteral("status")] = 2;
+                arr.append(o);
+            }
+        }
+        sendResponse(socket, 200, QStringLiteral("OK"), QJsonDocument(arr).toJson(QJsonDocument::Compact), QStringLiteral("application/json"));
+        return;
+    }
     if (req.path == QLatin1String("/api/v2/torrents/files")) {
         QString hash = req.queryParams.value(QStringLiteral("hash")).toLower();
+        if (hash == kMockFilesErrorHash) {
+            sendResponse(socket, 500, QStringLiteral("Internal Server Error"), QByteArrayLiteral("mock failure"));
+            return;
+        }
         QJsonArray arr;
         if (_torrents.contains(hash)) {
             for (const auto &f : _torrents[hash].files) {
@@ -637,6 +666,41 @@ void MockServerWorker::handleQBittorrent(QTcpSocket *socket, const HttpRequest &
         sendResponse(socket, 200, QStringLiteral("OK"), QByteArrayLiteral("Ok."));
         return;
     }
+    if (req.path == QLatin1String("/api/v2/torrents/editTracker")) {
+        auto form = parseFormUrlEncoded(req.body);
+        QString hash = form.value(QStringLiteral("hash")).toLower();
+        // qBittorrent 5.2+ sends the original tracker as "url".
+        QString origUrl = form.value(QStringLiteral("url"));
+        if (origUrl.isEmpty())
+            origUrl = form.value(QStringLiteral("origUrl"));
+        QString newUrl = form.value(QStringLiteral("newUrl"));
+        bool replaced = false;
+        if (_torrents.contains(hash) && !origUrl.isEmpty()) {
+            QStringList &trs = _torrents[hash].trackers;
+            for (int i = 0; i < trs.size(); ++i) {
+                if (trs[i] == origUrl) {
+                    trs[i] = newUrl;
+                    replaced = true;
+                    break;
+                }
+            }
+        }
+        sendResponse(socket, replaced ? 200 : 404,
+                     replaced ? QStringLiteral("OK") : QStringLiteral("Not Found"),
+                     replaced ? QByteArrayLiteral("Ok.") : QByteArrayLiteral("Tracker not found."));
+        return;
+    }
+    if (req.path == QLatin1String("/api/v2/torrents/removeTrackers")) {
+        auto form = parseFormUrlEncoded(req.body);
+        QString hash = form.value(QStringLiteral("hash")).toLower();
+        QStringList urls = form.value(QStringLiteral("urls")).split(QLatin1Char('|'), Qt::SkipEmptyParts);
+        if (_torrents.contains(hash)) {
+            for (const QString &u : urls)
+                _torrents[hash].trackers.removeAll(u);
+        }
+        sendResponse(socket, 200, QStringLiteral("OK"), QByteArrayLiteral("Ok."));
+        return;
+    }
     if (req.path == QLatin1String("/api/v2/torrents/setAutoManagement")) {
         auto form = parseFormUrlEncoded(req.body);
         QString hash = form.value(QStringLiteral("hashes")).toLower();
@@ -724,8 +788,21 @@ void MockServerWorker::handleTransmission(QTcpSocket *socket, const HttpRequest 
     }
 
     if (method == QLatin1String("torrent-get")) {
+        const QJsonArray wantedIds = args.value(QStringLiteral("ids")).toArray();
         QJsonArray torArr;
         for (const auto &t : _torrents) {
+            if (!wantedIds.isEmpty()) {
+                bool match = false;
+                for (const auto &idVal : wantedIds) {
+                    const QString id = idVal.toString().toLower();
+                    if (t.hash == id || QString::number(t.transmissionId) == id) {
+                        match = true;
+                        break;
+                    }
+                }
+                if (!match)
+                    continue;
+            }
             QJsonObject to;
             to[QStringLiteral("id")] = t.transmissionId;
             to[QStringLiteral("hashString")] = t.hash;
@@ -739,6 +816,16 @@ void MockServerWorker::handleTransmission(QTcpSocket *socket, const HttpRequest 
             to[QStringLiteral("labels")] = labelsArr;
             to[QStringLiteral("totalSize")] = qint64(t.totalSize);
             to[QStringLiteral("percentDone")] = t.progress;
+            to[QStringLiteral("sequentialDownload")] = t.seqDl;
+
+            QJsonArray trackerArr;
+            for (const QString &u : t.trackers) {
+                QJsonObject st;
+                st[QStringLiteral("announce")] = u;
+                st[QStringLiteral("tier")] = 0;
+                trackerArr.append(st);
+            }
+            to[QStringLiteral("trackerStats")] = trackerArr;
 
             QJsonArray filesArr, statsArr;
             for (const auto &f : t.files) {
@@ -820,6 +907,23 @@ void MockServerWorker::handleTransmission(QTcpSocket *socket, const HttpRequest 
             QString hashOrId = idVal.toString().toLower();
             for (auto &t : _torrents) {
                 if (t.hash == hashOrId || QString::number(t.transmissionId) == hashOrId) {
+                    if (args.contains(QStringLiteral("trackerRemove"))) {
+                        const QJsonArray removeArr = args.value(QStringLiteral("trackerRemove")).toArray();
+                        for (const auto &u : removeArr)
+                            t.trackers.removeAll(u.toString());
+                    }
+                    if (args.contains(QStringLiteral("trackerAdd"))) {
+                        const QJsonArray addArr = args.value(QStringLiteral("trackerAdd")).toArray();
+                        for (const auto &u : addArr) {
+                            const QString s = u.toString();
+                            if (!s.isEmpty() && !t.trackers.contains(s))
+                                t.trackers.append(s);
+                        }
+                    }
+                    if (args.contains(QStringLiteral("trackerList"))) {
+                        t.trackers = args.value(QStringLiteral("trackerList")).toString()
+                                        .split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+                    }
                     if (args.contains(QStringLiteral("files-unwanted"))) {
                         for (const auto &unw : args.value(QStringLiteral("files-unwanted")).toArray()) {
                             int idx = unw.toInt();

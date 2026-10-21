@@ -168,25 +168,4 @@ bool removeTorrentUserChoice()
     return false;
 }
 
-void registerAll()
-{
-    registerMagnetHandler();
-    registerTorrentHandler();
-}
-
-bool unregisterAll()
-{
-    bool r1 = unregisterMagnetHandler();
-    bool r2 = unregisterTorrentHandler();
-    if (QFile::exists(desktopPath())) {
-        QFile::remove(desktopPath());
-        QProcess::execute(QStringLiteral("update-desktop-database"), {desktopDir()});
-    }
-    return r1 || r2;
-}
-
-void openSystemSettings()
-{
-}
-
 } // namespace MagnetHandler

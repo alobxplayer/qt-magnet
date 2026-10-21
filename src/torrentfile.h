@@ -4,13 +4,23 @@
 #include <QStringList>
 #include <QVector>
 #include <QByteArray>
-#include "qbtclient.h"
+#include "torrenttypes.h"
 
 enum class TorrentVersion {
     V1,
     V2,
     Hybrid
 };
+
+inline QString torrentVersionString(TorrentVersion version)
+{
+    switch (version) {
+    case TorrentVersion::V1:     return QStringLiteral("v1");
+    case TorrentVersion::V2:     return QStringLiteral("v2");
+    case TorrentVersion::Hybrid: return QStringLiteral("Hybrid (v1+v2)");
+    }
+    return QStringLiteral("v1");
+}
 
 class TorrentFileData {
 public:

@@ -23,6 +23,7 @@ protected:
 private slots:
     void onSave();
     void testConnection();
+    void rewriteServerTrackers();
     void assignMagnetHandler();
     void removeMagnetHandler();
     void assignTorrentHandler();
@@ -33,9 +34,16 @@ private:
     void loadValues();
     void refreshHandlerStatus();
     void updateAuthModeVisibility();
+    Config probeConfigFromUi() const;
+    QWidget *wrapSection(const QString &title, QWidget *content);
+    QWidget *wrapInScroll(QWidget *content);
     QWidget *buildConnectionGroup();
-    QWidget *buildHandlerGroup();
-    QWidget *buildBehaviorGroup();
+    QWidget *buildGeneralTab();
+    QWidget *buildSystemIntegrationGroup();
+    QWidget *buildGeneralGroup();
+    QWidget *buildAdvancedTab();
+    QWidget *buildPasskeyGroup();
+    QWidget *buildAdvancedGroup();
 
     Config &_cfg;
 
@@ -57,6 +65,10 @@ private:
     QLabel *_testResult = nullptr;
     QThread *_testThread = nullptr;
     std::shared_ptr<std::atomic<bool>> _testCancel;
+    QPushButton *_rewriteTrackersButton = nullptr;
+    QLabel *_rewriteTrackersResult = nullptr;
+    QThread *_rewriteThread = nullptr;
+    std::shared_ptr<std::atomic<bool>> _rewriteCancel;
 
     QLabel *_magnetHandlerStatus = nullptr;
     QLabel *_torrentHandlerStatus = nullptr;
@@ -67,6 +79,7 @@ private:
     QCheckBox *_autoClose = nullptr;
     QLineEdit *_defaultCategory = nullptr;
     QLineEdit *_defaultTags = nullptr;
+    QLineEdit *_rutrackerPasskey = nullptr;
     QComboBox *_contentLayout = nullptr;
     QSpinBox *_metadataTimeout = nullptr;
     QSpinBox *_requestTimeout = nullptr;

@@ -135,13 +135,4 @@ void clear(const QString &account, const QString &token)
 #endif
 }
 
-bool isSecure()
-{
-#ifdef HAVE_LIBSECRET
-    return true;
-#else
-    return false;
-#endif
-}
-
 } // namespace SecretStore

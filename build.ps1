@@ -28,6 +28,17 @@ if (-not $QtDir) {
             }
         }
     }
+
+    if (-not $QtDir) {
+        # Fall back to the Qt path recorded by a previous CMake configure.
+        $cache = Join-Path $buildPath "CMakeCache.txt"
+        if (Test-Path $cache) {
+            $m = Select-String -Path $cache -Pattern '^CMAKE_PREFIX_PATH:[^=]*=(.+)$' | Select-Object -First 1
+            if ($m -and (Test-Path (Join-Path $m.Matches[0].Groups[1].Value.Trim() "bin"))) {
+                $QtDir = $m.Matches[0].Groups[1].Value.Trim()
+            }
+        }
+    }
 }
 
 $toolsDirs = @()
@@ -47,6 +58,18 @@ if (Test-Path "C:\Qt\Tools") {
 }
 if ($QtDir -and (Test-Path (Join-Path $QtDir "bin"))) {
     $toolsDirs += (Join-Path $QtDir "bin")
+}
+
+# The test binary also needs the MinGW runtime DLLs from the compiler's bin dir.
+$compilerCache = Join-Path $buildPath "CMakeCache.txt"
+if (Test-Path $compilerCache) {
+    $m = Select-String -Path $compilerCache -Pattern '^CMAKE_CXX_COMPILER:[^=]*=(.+)$' | Select-Object -First 1
+    if ($m) {
+        $compilerBin = Split-Path -Parent $m.Matches[0].Groups[1].Value.Trim()
+        if ((Test-Path $compilerBin) -and $toolsDirs -notcontains $compilerBin) {
+            $toolsDirs += $compilerBin
+        }
+    }
 }
 if ($toolsDirs.Count -gt 0) {
     $env:PATH = ($toolsDirs -join ";") + ";$env:PATH"
@@ -110,6 +133,13 @@ if ((Test-Path $binPath) -and $deployCmd) {
     foreach ($d in $unwantedDirs) {
         $targetDir = Join-Path $distPath $d
         if (Test-Path $targetDir) { Remove-Item -Recurse -Force $targetDir }
+    }
+
+    # Qt's own catalog (standard button texts); windeployqt --no-translations
+    # skips it, so ship just the one the app needs.
+    $qtRuBase = Join-Path $QtDir "translations\qtbase_ru.qm"
+    if (Test-Path $qtRuBase) {
+        Copy-Item $qtRuBase (Join-Path $distPath "translations\qtbase_ru.qm") -Force
     }
 }
 

@@ -3,11 +3,7 @@
 #include <QCoreApplication>
 
 struct HandlerInfo {
-    QString progId;
-    QString command;
     bool isOurs = false;
-    bool userChoiceOverride = false;
-    QString userChoiceProgId;
     QString description;
 
     HandlerInfo()
@@ -26,14 +22,4 @@ namespace MagnetHandler {
     bool unregisterTorrentHandler();
     HandlerInfo queryTorrent();
     bool removeTorrentUserChoice();
-
-    void registerAll();
-    bool unregisterAll();
-
-    inline void registerHandler() { registerAll(); }
-    inline bool unregisterHandler() { return unregisterAll(); }
-    inline HandlerInfo query() { return queryMagnet(); }
-    inline bool removeUserChoice() { return removeMagnetUserChoice(); }
-
-    void openSystemSettings();
 }

@@ -2,11 +2,9 @@
 #include "logger.h"
 
 #include <QCoreApplication>
-#include <QDesktopServices>
 #include <QDir>
 #include <QFileInfo>
 #include <QSettings>
-#include <QUrl>
 
 static const QString kProgIdMagnet       = QStringLiteral("QtMagnet.Magnet");
 static const QString kMagnetClass        = QStringLiteral("HKEY_CURRENT_USER\\Software\\Classes\\magnet");
@@ -148,17 +146,11 @@ HandlerInfo queryMagnet()
     }
 
     if (!userChoice.isEmpty()) {
-        QString cmd;
-        cmd = readCommand(QStringLiteral("HKEY_CURRENT_USER\\Software\\Classes\\") + userChoice);
+        QString cmd = readCommand(QStringLiteral("HKEY_CURRENT_USER\\Software\\Classes\\") + userChoice);
         if (cmd.isEmpty())
             cmd = readCommand(QStringLiteral("HKEY_CLASSES_ROOT\\") + userChoice);
 
-        bool ours = userChoice.compare(kProgIdMagnet, Qt::CaseInsensitive) == 0 || isOurCommand(cmd);
-        info.userChoiceProgId = userChoice;
-        info.userChoiceOverride = !ours;
-        info.isOurs = ours;
-        info.progId = userChoice;
-        info.command = cmd;
+        info.isOurs = userChoice.compare(kProgIdMagnet, Qt::CaseInsensitive) == 0 || isOurCommand(cmd);
         info.description = describe(userChoice, cmd);
         return info;
     }
@@ -167,11 +159,9 @@ HandlerInfo queryMagnet()
     if (effective.isEmpty())
         effective = readCommand(QStringLiteral("HKEY_CLASSES_ROOT\\magnet"));
 
-    info.command = effective;
     info.isOurs = isOurCommand(effective);
-    info.description = effective.isEmpty()
-                           ? QCoreApplication::translate("MagnetHandler", "Not assigned")
-                           : describe(QStringLiteral("magnet"), effective);
+    if (!effective.isEmpty())
+        info.description = describe(QStringLiteral("magnet"), effective);
     return info;
 }
 
@@ -232,17 +222,11 @@ HandlerInfo queryTorrent()
     }
 
     if (!userChoice.isEmpty()) {
-        QString cmd;
-        cmd = readCommand(QStringLiteral("HKEY_CURRENT_USER\\Software\\Classes\\") + userChoice);
+        QString cmd = readCommand(QStringLiteral("HKEY_CURRENT_USER\\Software\\Classes\\") + userChoice);
         if (cmd.isEmpty())
             cmd = readCommand(QStringLiteral("HKEY_CLASSES_ROOT\\") + userChoice);
 
-        bool ours = userChoice.compare(kProgIdTorrent, Qt::CaseInsensitive) == 0 || isOurCommand(cmd);
-        info.userChoiceProgId = userChoice;
-        info.userChoiceOverride = !ours;
-        info.isOurs = ours;
-        info.progId = userChoice;
-        info.command = cmd;
+        info.isOurs = userChoice.compare(kProgIdTorrent, Qt::CaseInsensitive) == 0 || isOurCommand(cmd);
         info.description = describe(userChoice, cmd);
         return info;
     }
@@ -261,11 +245,9 @@ HandlerInfo queryTorrent()
             cmd = readCommand(QStringLiteral("HKEY_CLASSES_ROOT\\") + progId);
     }
 
-    info.command = cmd;
     info.isOurs = isOurCommand(cmd);
-    info.description = progId.isEmpty()
-                           ? QCoreApplication::translate("MagnetHandler", "Not assigned")
-                           : describe(progId, cmd);
+    if (!progId.isEmpty())
+        info.description = describe(progId, cmd);
     return info;
 }
 
@@ -279,24 +261,6 @@ bool removeTorrentUserChoice()
     if (ok)
         Log::write(QStringLiteral("Removed UserChoice for .torrent"));
     return ok;
-}
-
-void registerAll()
-{
-    registerMagnetHandler();
-    registerTorrentHandler();
-}
-
-bool unregisterAll()
-{
-    bool r1 = unregisterMagnetHandler();
-    bool r2 = unregisterTorrentHandler();
-    return r1 || r2;
-}
-
-void openSystemSettings()
-{
-    QDesktopServices::openUrl(QUrl(QStringLiteral("ms-settings:defaultapps")));
 }
 
 } // namespace MagnetHandler

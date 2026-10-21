@@ -1,11 +1,16 @@
 // qt-magnet - Windows resource file
 // Compiled via windres (MinGW) or rc.exe (MSVC).
+// Version numbers are substituted from CMakeLists.txt (project VERSION).
 
 #include <windows.h>
 
+// Icon index 0 of the exe: the shell integration's DefaultIcon points at
+// "qt-magnet.exe,0", and Explorer/taskbar use this resource.
+1 ICON "app.ico"
+
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION    1,1,1,0
- PRODUCTVERSION 1,1,1,0
+ FILEVERSION    @QT_MAGNET_VERSION_RC@
+ PRODUCTVERSION @QT_MAGNET_VERSION_RC@
  FILEFLAGSMASK  VS_FFI_FILEFLAGSMASK
  FILEFLAGS      0x0L
  FILEOS         VOS_NT_WINDOWS32
@@ -17,12 +22,12 @@ BEGIN
         BLOCK "040904B0"
         BEGIN
             VALUE "CompanyName",      "qt-magnet\0"
-            VALUE "FileDescription",  "qt-magnet - magnet handler for qBittorrent WebUI\0"
-            VALUE "FileVersion",      "1.1.1.0\0"
+            VALUE "FileDescription",  "qt-magnet - magnet and .torrent handler for qBittorrent, Transmission and Aria2\0"
+            VALUE "FileVersion",      "@QT_MAGNET_VERSION@.0\0"
             VALUE "InternalName",     "qt-magnet\0"
             VALUE "OriginalFilename", "qt-magnet.exe\0"
             VALUE "ProductName",      "qt-magnet\0"
-            VALUE "ProductVersion",   "1.1.1.0\0"
+            VALUE "ProductVersion",   "@QT_MAGNET_VERSION@.0\0"
         END
     END
     BLOCK "VarFileInfo"

@@ -6,7 +6,7 @@
 #include <QList>
 #include <atomic>
 #include "config.h"
-#include "qbtclient.h"
+#include "torrentclient.h"
 #include "torrentpayload.h"
 
 class Worker : public QThread {
@@ -30,9 +30,6 @@ public:
         QString tags;
         QString savePath;
         bool forceStart = true;
-        QString initialCategory;
-        QString initialSavePath;
-        QString initialTags;
         QStringList trackers;
     };
     ApplyParams applyParams;
@@ -52,7 +49,8 @@ public:
 
     bool resultOk = false;
 
-    QbtClient *client() { return _client; }
+    // Capabilities of the detected server, valid after Prepare.
+    BackendCaps caps;
 
 signals:
     void status(const QString &text);
@@ -77,9 +75,9 @@ private:
     TorrentPayload _payload;
     bool _quick;
     Task _task = Prepare;
-    QbtClient *_client = nullptr;
+    TorrentClient *_client = nullptr;
     std::atomic<bool> _cancelRequested{false};
-    QbtClient::ClientType _detectedType = QbtClient::ClientType::Auto;
+    TorrentClient::ClientType _detectedType = TorrentClient::ClientType::Auto;
     QList<QNetworkCookie> _sessionCookies;
     QString _transmissionSessionId;
 };

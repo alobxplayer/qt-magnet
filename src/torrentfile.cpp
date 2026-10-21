@@ -149,7 +149,7 @@ void traverseFileTree(const BencodeParser::Value &node,
             const auto *attrVal = leafVal->dictGet("attr");
             QString attr = attrVal ? attrVal->asUtf8() : QString();
             QString relPath = pathSegments.join(QLatin1Char('/'));
-            bool isPadding = attr.contains(QLatin1Char('p')) || relPath.contains(QLatin1String(".pad/")) || relPath.startsWith(QLatin1String(".pad"));
+            bool isPadding = attr.contains(QLatin1Char('p')) || relPath.contains(QLatin1String(".pad/"));
             if (!isPadding) {
                 TorrentFile tf;
                 tf.index = fileIndex++;
@@ -178,12 +178,7 @@ void traverseFileTree(const BencodeParser::Value &node,
 
 QString TorrentFileData::versionString() const
 {
-    switch (version) {
-    case TorrentVersion::V1:     return QStringLiteral("v1");
-    case TorrentVersion::V2:     return QStringLiteral("v2");
-    case TorrentVersion::Hybrid: return QStringLiteral("Hybrid (v1+v2)");
-    }
-    return QStringLiteral("v1");
+    return torrentVersionString(version);
 }
 
 QString TorrentFileData::toMagnetUri() const
@@ -331,7 +326,12 @@ TorrentFileData TorrentFileData::parse(const QByteArray &bytes, const QString &s
                 if (relativePath.isEmpty())
                     relativePath = QStringLiteral("file_%1").arg(fileIndex);
 
-                bool isPadding = relativePath.contains(QLatin1String(".pad/")) || relativePath.startsWith(QLatin1String(".pad"));
+                // BEP 47 padding files: ".pad/<n>" path or the 'p' attr flag,
+                // the same rule as the v2 file tree below.
+                const auto *attrVal = fEntry.dictGet("attr");
+                bool isPadding = relativePath.contains(QLatin1String(".pad/"))
+                    || (attrVal && attrVal->type == BencodeParser::Value::String
+                        && attrVal->asUtf8().contains(QLatin1Char('p')));
                 if (isPadding)
                     continue;
 
@@ -398,3 +398,4 @@ TorrentFileData TorrentFileData::loadFromFile(const QString &filePath)
     file.close();
     return parse(data, path);
 }
+

@@ -25,12 +25,6 @@ QSet<int> TorrentPayload::selectedIndices() const
     return isMagnet() ? magnet.selectedIndices : QSet<int>();
 }
 
-QString TorrentPayload::toMagnetUri() const
-{
-    return isFile() ? torrentData.toMagnetUri() : magnet.raw;
-}
-
-
 QString TorrentPayload::displayName() const
 {
     return isFile() ? torrentData.displayName : magnet.displayName;

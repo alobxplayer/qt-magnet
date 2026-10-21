@@ -3,15 +3,18 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
+#include <QIcon>
 #include <QLabel>
 #include <QLibraryInfo>
 #include <QLocale>
 #include <QMessageBox>
+#include <QStyleHints>
 #include <QTranslator>
 #include <QUrl>
 #include <QVBoxLayout>
 
 #include "config.h"
+#include "darktheme.h"
 #include "logger.h"
 #include "magnetlink.h"
 #include "torrentfile.h"
@@ -19,8 +22,6 @@
 #include "magnethandler.h"
 #include "adddialog.h"
 #include "settingsdialog.h"
-
-static const char *kAppTitle = "qt-magnet";
 
 static void messageHandler(QtMsgType, const QMessageLogContext &, const QString &msg)
 {
@@ -93,11 +94,11 @@ struct Options {
         }
 
         if (!rest.isEmpty()) {
+            // Multiple tokens are joined back: Windows splits quoted paths
+            // with spaces across arguments.
             QString joined = rest.join(QLatin1Char(' ')).trimmed();
             if (MagnetLink::looksLikeMagnet(joined) || TorrentFileData::looksLikeTorrent(joined) || QFile::exists(joined))
                 o.targetInput = joined;
-            else if (rest.size() == 1 && (MagnetLink::looksLikeMagnet(rest.first()) || TorrentFileData::looksLikeTorrent(rest.first()) || QFile::exists(rest.first())))
-                o.targetInput = rest.first();
             else
                 o.badArgument = joined;
         }
@@ -112,7 +113,7 @@ static QString shorten(const QString &s, int max)
     return s.left(max) + QStringLiteral("...");
 }
 
-static bool loadTranslation(QApplication &app, QTranslator &appTranslator, QTranslator &qtTranslator, const QString &langChoice)
+static void loadTranslation(QApplication &app, QTranslator &appTranslator, QTranslator &qtTranslator, const QString &langChoice)
 {
     QString lang = langChoice;
     if (lang.isEmpty() || lang == QLatin1String("system")) {
@@ -145,15 +146,16 @@ static bool loadTranslation(QApplication &app, QTranslator &appTranslator, QTran
 
     QString shortLang = lang.contains(QLatin1Char('_')) ? lang.split(QLatin1Char('_')).first() : lang;
     for (const QString &dir : searchDirs) {
-        if (qtTranslator.load(QStringLiteral("qt_") + lang, dir) ||
-            qtTranslator.load(QStringLiteral("qt_") + shortLang, dir) ||
-            qtTranslator.load(QStringLiteral("qtbase_") + lang, dir) ||
-            qtTranslator.load(QStringLiteral("qtbase_") + shortLang, dir)) {
+        // qtbase_* holds the real standard-button texts; the aggregate qt_*
+        // catalogs can be empty stubs that would load and translate nothing.
+        if (qtTranslator.load(QStringLiteral("qtbase_") + lang, dir) ||
+            qtTranslator.load(QStringLiteral("qtbase_") + shortLang, dir) ||
+            qtTranslator.load(QStringLiteral("qt_") + lang, dir) ||
+            qtTranslator.load(QStringLiteral("qt_") + shortLang, dir)) {
             app.installTranslator(&qtTranslator);
             break;
         }
     }
-    return true;
 }
 
 static QString askFirstRunLanguage()
@@ -161,7 +163,7 @@ static QString askFirstRunLanguage()
     QString detectedLang = (QLocale::system().language() == QLocale::Russian) ? QStringLiteral("ru_RU") : QStringLiteral("en_US");
 
     QDialog dlg;
-    dlg.setWindowTitle(QStringLiteral("Language / Язык"));
+    dlg.setWindowTitle(QStringLiteral("qt-magnet — Language / Язык"));
 
     auto *layout = new QVBoxLayout(&dlg);
     layout->setSizeConstraint(QLayout::SetFixedSize);
@@ -208,70 +210,52 @@ static void showHelp()
     text += QCoreApplication::translate("main", "  /help                Show this help\n\n");
     text += QCoreApplication::translate("main", "Config: ") + Config::filePath() + QLatin1Char('\n');
     text += QCoreApplication::translate("main", "Log:    ") + Log::filePath();
-    QMessageBox::information(nullptr, QString::fromUtf8(kAppTitle), text);
+    QMessageBox::information(nullptr, QStringLiteral("qt-magnet"), text);
 }
 
-static int runRegisterMagnet()
+static int reportHandlerError(const QString &logAction, const QString &messageTemplate,
+                              const std::exception &ex)
+{
+    Log::write(QStringLiteral("%1 failed: %2").arg(logAction, QString::fromUtf8(ex.what())));
+    QMessageBox::critical(nullptr, QStringLiteral("qt-magnet"), messageTemplate.arg(QString::fromUtf8(ex.what())));
+    return 1;
+}
+
+static int runRegisterHandler(bool torrent)
 {
     try {
-        MagnetHandler::registerMagnetHandler();
-        MagnetHandler::removeMagnetUserChoice();
-        QMessageBox::information(nullptr, QString::fromUtf8(kAppTitle),
-                                 QCoreApplication::translate("main", "Registered as default magnet: handler."));
+        if (torrent) {
+            MagnetHandler::registerTorrentHandler();
+            MagnetHandler::removeTorrentUserChoice();
+        } else {
+            MagnetHandler::registerMagnetHandler();
+            MagnetHandler::removeMagnetUserChoice();
+        }
+        QMessageBox::information(nullptr, QStringLiteral("qt-magnet"),
+                                 torrent ? QCoreApplication::translate("main", "Registered as default .torrent file handler.")
+                                         : QCoreApplication::translate("main", "Registered as default magnet: handler."));
         return 0;
     } catch (const std::exception &ex) {
-        Log::write(QStringLiteral("Magnet registration failed: %1").arg(QString::fromUtf8(ex.what())));
-        QMessageBox::critical(nullptr, QString::fromUtf8(kAppTitle),
-                              QCoreApplication::translate("main", "Magnet registration failed:\n\n%1").arg(QString::fromUtf8(ex.what())));
-        return 1;
+        return reportHandlerError(torrent ? QStringLiteral("Torrent registration") : QStringLiteral("Magnet registration"),
+                                  torrent ? QCoreApplication::translate("main", "Torrent registration failed:\n\n%1")
+                                          : QCoreApplication::translate("main", "Magnet registration failed:\n\n%1"), ex);
     }
 }
-
-static int runUnregisterMagnet()
+static int runUnregisterHandler(bool torrent)
 {
     try {
-        bool removed = MagnetHandler::unregisterMagnetHandler();
-        QMessageBox::information(nullptr, QString::fromUtf8(kAppTitle),
-                                 removed ? QCoreApplication::translate("main", "Magnet registration removed.")
-                                         : QCoreApplication::translate("main", "No magnet registry entries found."));
+        bool removed = torrent ? MagnetHandler::unregisterTorrentHandler()
+                               : MagnetHandler::unregisterMagnetHandler();
+        QMessageBox::information(nullptr, QStringLiteral("qt-magnet"),
+                                 torrent ? (removed ? QCoreApplication::translate("main", "Torrent file registration removed.")
+                                                    : QCoreApplication::translate("main", "No torrent registry entries found."))
+                                         : (removed ? QCoreApplication::translate("main", "Magnet registration removed.")
+                                                    : QCoreApplication::translate("main", "No magnet registry entries found.")));
         return 0;
     } catch (const std::exception &ex) {
-        Log::write(QStringLiteral("Magnet unregistration failed: %1").arg(QString::fromUtf8(ex.what())));
-        QMessageBox::critical(nullptr, QString::fromUtf8(kAppTitle),
-                              QCoreApplication::translate("main", "Magnet unregistration failed:\n\n%1").arg(QString::fromUtf8(ex.what())));
-        return 1;
-    }
-}
-
-static int runRegisterTorrent()
-{
-    try {
-        MagnetHandler::registerTorrentHandler();
-        MagnetHandler::removeTorrentUserChoice();
-        QMessageBox::information(nullptr, QString::fromUtf8(kAppTitle),
-                                 QCoreApplication::translate("main", "Registered as default .torrent file handler."));
-        return 0;
-    } catch (const std::exception &ex) {
-        Log::write(QStringLiteral("Torrent registration failed: %1").arg(QString::fromUtf8(ex.what())));
-        QMessageBox::critical(nullptr, QString::fromUtf8(kAppTitle),
-                              QCoreApplication::translate("main", "Torrent registration failed:\n\n%1").arg(QString::fromUtf8(ex.what())));
-        return 1;
-    }
-}
-
-static int runUnregisterTorrent()
-{
-    try {
-        bool removed = MagnetHandler::unregisterTorrentHandler();
-        QMessageBox::information(nullptr, QString::fromUtf8(kAppTitle),
-                                 removed ? QCoreApplication::translate("main", "Torrent file registration removed.")
-                                         : QCoreApplication::translate("main", "No torrent registry entries found."));
-        return 0;
-    } catch (const std::exception &ex) {
-        Log::write(QStringLiteral("Torrent unregistration failed: %1").arg(QString::fromUtf8(ex.what())));
-        QMessageBox::critical(nullptr, QString::fromUtf8(kAppTitle),
-                              QCoreApplication::translate("main", "Torrent unregistration failed:\n\n%1").arg(QString::fromUtf8(ex.what())));
-        return 1;
+        return reportHandlerError(torrent ? QStringLiteral("Torrent unregistration") : QStringLiteral("Magnet unregistration"),
+                                  torrent ? QCoreApplication::translate("main", "Torrent unregistration failed:\n\n%1")
+                                          : QCoreApplication::translate("main", "Magnet unregistration failed:\n\n%1"), ex);
     }
 }
 
@@ -280,7 +264,15 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
     QApplication::setOrganizationName(QStringLiteral("QtMagnet"));
     QApplication::setApplicationName(QStringLiteral("qt-magnet"));
-    QApplication::setApplicationVersion(QStringLiteral("1.1.1"));
+    QApplication::setApplicationVersion(QStringLiteral(QT_MAGNET_VERSION));
+    // The taskbar shows the window icon; without this it stays blank even
+    // though the exe carries a valid icon resource.
+    app.setWindowIcon(QIcon(QStringLiteral(":/app.ico")));
+
+    DarkTheme::apply(app);
+    QObject::connect(app.styleHints(), &QStyleHints::colorSchemeChanged, &app, [&app](Qt::ColorScheme) {
+        DarkTheme::apply(app);
+    });
 
     qInstallMessageHandler(messageHandler);
     Log::write(QStringLiteral("Startup: %1").arg(app.arguments().join(QLatin1Char(' '))));
@@ -308,23 +300,23 @@ int main(int argc, char *argv[])
 
     if (opt.showHelp) { showHelp(); return 0; }
     if (opt.doRegisterMagnet && opt.doRegisterTorrent) {
-        int r1 = runRegisterMagnet();
-        int r2 = runRegisterTorrent();
+        int r1 = runRegisterHandler(false);
+        int r2 = runRegisterHandler(true);
         return (r1 != 0) ? r1 : r2;
     }
     if (opt.doUnregisterMagnet && opt.doUnregisterTorrent) {
-        int r1 = runUnregisterMagnet();
-        int r2 = runUnregisterTorrent();
+        int r1 = runUnregisterHandler(false);
+        int r2 = runUnregisterHandler(true);
         return (r1 != 0) ? r1 : r2;
     }
-    if (opt.doRegisterMagnet) return runRegisterMagnet();
-    if (opt.doUnregisterMagnet) return runUnregisterMagnet();
-    if (opt.doRegisterTorrent) return runRegisterTorrent();
-    if (opt.doUnregisterTorrent) return runUnregisterTorrent();
+    if (opt.doRegisterMagnet) return runRegisterHandler(false);
+    if (opt.doUnregisterMagnet) return runUnregisterHandler(false);
+    if (opt.doRegisterTorrent) return runRegisterHandler(true);
+    if (opt.doUnregisterTorrent) return runUnregisterHandler(true);
 
     if (opt.targetInput.isEmpty() || opt.settingsOnly) {
         if (opt.targetInput.isEmpty() && !opt.badArgument.isEmpty()) {
-            QMessageBox::warning(nullptr, QString::fromUtf8(kAppTitle),
+            QMessageBox::warning(nullptr, QStringLiteral("qt-magnet"),
                                  QCoreApplication::translate("main", "Invalid link or file:\n\n%1\n\nOpening settings.")
                                      .arg(shorten(opt.badArgument, 300)));
         }
@@ -341,13 +333,13 @@ int main(int argc, char *argv[])
             payload = TorrentPayload::fromFile(opt.targetInput);
     } catch (const std::exception &ex) {
         Log::write(QStringLiteral("Failed to parse link/file: %1").arg(QString::fromUtf8(ex.what())));
-        QMessageBox::warning(nullptr, QString::fromUtf8(kAppTitle),
+        QMessageBox::warning(nullptr, QStringLiteral("qt-magnet"),
                              QCoreApplication::translate("main", "Failed to parse magnet link or torrent file:\n\n%1").arg(QString::fromUtf8(ex.what())));
         return 2;
     }
 
     if (!cfg.isComplete()) {
-        QMessageBox::information(nullptr, QString::fromUtf8(kAppTitle),
+        QMessageBox::information(nullptr, QStringLiteral("qt-magnet"),
                                  QCoreApplication::translate("main", "Configure server connection details first."));
         SettingsDialog dlg(cfg);
         if (dlg.exec() != QDialog::Accepted)

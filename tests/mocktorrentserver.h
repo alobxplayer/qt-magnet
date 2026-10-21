@@ -18,6 +18,9 @@ enum class MockClientType {
     Aria2
 };
 
+// Requesting files() for this hash makes the mock answer HTTP 500.
+inline const QString kMockFilesErrorHash = QStringLiteral("5000000000000000000000000000000000000050");
+
 struct MockTorrentFile {
     int index = 0;
     QString name;

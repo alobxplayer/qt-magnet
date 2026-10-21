@@ -1,10 +1,38 @@
 #include "worker.h"
 #include "config.h"
 #include "logger.h"
+#include "passkey.h"
 #include "torrentpayload.h"
 
 #include <QCoreApplication>
 #include <QThread>
+
+namespace {
+
+// Poll interval of the progress monitoring loop, and how long to wait for
+// the started state to settle before verifying it.
+constexpr int kPollIntervalMs = 1000;
+constexpr int kStartSettleMs = 500;
+constexpr int kForceStartAttempts = 5;
+// resolveHash gets at least this much time even with a tiny request timeout.
+constexpr int kMinResolveTimeoutMs = 8000;
+
+// Strip characters that are invalid in Windows filenames from the uploaded .torrent name.
+QString sanitizeFileName(const QString &name)
+{
+    QString s;
+    s.reserve(name.size());
+    for (const QChar ch : name) {
+        const ushort u = ch.unicode();
+        const bool invalid = (u <= 0x1F) || u == 0x7F
+            || u == '<' || u == '>' || u == ':' || u == '"' || u == '/'
+            || u == '\\' || u == '|' || u == '?' || u == '*';
+        s.append(invalid ? QLatin1Char('_') : ch);
+    }
+    return s;
+}
+
+} // namespace
 
 Worker::Worker(const Config &cfg, const TorrentPayload &payload, bool quick, QObject *parent)
     : QThread(parent), _cfg(cfg), _payload(payload), _quick(quick)
@@ -55,8 +83,8 @@ void Worker::run()
         if (_task != Poll)
             emit status(s);
     };
-    _client = new QbtClient(_cfg, statusCb, [this]() { return wasCancelled(); });
-    if (_detectedType != QbtClient::ClientType::Auto) {
+    _client = new TorrentClient(_cfg, statusCb, [this]() { return wasCancelled(); });
+    if (_detectedType != TorrentClient::ClientType::Auto) {
         _client->clientType = _detectedType;
         _client->detectedType = _detectedType;
     }
@@ -70,7 +98,16 @@ void Worker::run()
     case Apply:       doApply();       break;
     case QuickFinish: doQuickFinish(); break;
     case Cleanup:     doCleanup();     break;
-    case Poll:        doPoll();        break;
+    case Poll:
+        // The whole polling lifetime runs on ONE client, so the session
+        // and the connection pool are reused across ticks instead of being
+        // rebuilt every second. Cancellation breaks the loop promptly
+        // (execRaw aborts an in-flight request within ~100 ms).
+        while (!wasCancelled()) {
+            doPoll();
+            sleepCancellable(kPollIntervalMs);
+        }
+        break;
     }
 
     _sessionCookies = _client->cookies();
@@ -86,8 +123,8 @@ void Worker::doPrepare()
         emit status(tr("Connecting..."));
         _client->login();
         _detectedType = _client->detectedType;
+        caps = _client->backendCaps();
         _client->fetchServerInfo();
-        try { _client->preferences(); } catch (const std::exception &ex) { Log::write(QStringLiteral("fetch preferences: %1").arg(QString::fromUtf8(ex.what()))); }
         try { categories = _client->categories(); } catch (const std::exception &ex) { Log::write(QStringLiteral("fetch categories: %1").arg(QString::fromUtf8(ex.what()))); }
 
         if (wasCancelled()) { emit prepareFinished(false, QString()); return; }
@@ -96,10 +133,20 @@ void Worker::doPrepare()
         QSet<QString> before = _client->allHashes();
         existed = !targetHash.isEmpty() && before.contains(targetHash.toLower());
 
+        // Injected into magnet announce URLs before the add itself.
+        QString ownPk;
+        try {
+            ownPk = _cfg.getRutrackerPasskey();
+        } catch (const std::exception &ex) {
+            Log::write(QStringLiteral("Failed to load rutracker passkey: %1").arg(QString::fromUtf8(ex.what())));
+        }
+
         if (_payload.isFile()) {
             emit status(tr("Adding torrent file..."));
             try {
-                QString fn = _payload.displayName().isEmpty() ? QStringLiteral("torrent.torrent") : (_payload.displayName() + QStringLiteral(".torrent"));
+                QString fn = _payload.displayName().isEmpty()
+                    ? QStringLiteral("torrent.torrent")
+                    : (sanitizeFileName(_payload.displayName()) + QStringLiteral(".torrent"));
                 _client->addTorrentFile(_payload.torrentData.rawData,
                                        fn,
                                        !_quick && !existed,
@@ -115,8 +162,17 @@ void Worker::doPrepare()
             }
         } else {
             emit status(tr("Adding magnet link..."));
+            QString magnetUri = _payload.magnet.raw;
+            if (!ownPk.isEmpty()) {
+                const QString injected = PassKey::injectIntoMagnet(magnetUri, ownPk);
+                if (injected != magnetUri) {
+                    magnetUri = injected;
+                    Log::write(QStringLiteral("RuTracker passkey injected into the magnet announce URLs (%1)")
+                                   .arg(targetHash));
+                }
+            }
             try {
-                _client->addMagnet(_payload.magnet.raw,
+                _client->addMagnet(magnetUri,
                                    false,
                                    !_quick && !existed,
                                    QString(),
@@ -130,8 +186,10 @@ void Worker::doPrepare()
             }
         }
 
-        const QStringList trList = _payload.trackers();
-        if (existed && !trList.isEmpty() && !targetHash.isEmpty()) {
+        QStringList trList = _payload.trackers();
+        if (!ownPk.isEmpty())
+            trList += PassKey::applyRutrackerPasskey(trList, ownPk);
+        if (existed && caps.addTrackers && !trList.isEmpty() && !targetHash.isEmpty()) {
             emit status(tr("Updating trackers..."));
             try {
                 _client->addTrackers(targetHash, trList);
@@ -145,7 +203,7 @@ void Worker::doPrepare()
         emit status(existed ? tr("Torrent already exists. Loading...") : tr("Waiting for torrent..."));
         QString resolved = _client->resolveHash(
             targetHash, before,
-            qMax(8000, _cfg.requestTimeoutSec * 1000),
+            qMax(kMinResolveTimeoutMs, _cfg.requestTimeoutSec * 1000),
             [this]() { return wasCancelled(); },
             _payload.hashV2());
 
@@ -154,7 +212,7 @@ void Worker::doPrepare()
             if (!targetHash.isEmpty())
                 resolved = targetHash;
             else
-                throw QbtException(tr("Torrent not found."), 0, QString());
+                throw ClientException(tr("Torrent not found."), 0, QString());
         }
 
         hash = resolved;
@@ -176,7 +234,10 @@ void Worker::doPrepare()
         if (_payload.isFile()) {
             try {
                 files = _client->files(hash);
-            } catch (...) {}
+            } catch (const std::exception &ex) {
+                // Fall back to the file list parsed from the local .torrent.
+                Log::write(QStringLiteral("files: %1").arg(QString::fromUtf8(ex.what())));
+            }
             if (files.isEmpty())
                 files = _payload.torrentData.files;
 
@@ -221,7 +282,7 @@ void Worker::doQuickFinish()
         if (wasCancelled()) { emit quickFinished(false, QString()); return; }
 
         emit status(tr("Force starting..."));
-        resultOk = _client->forceStartVerified(hash, 5,
+        resultOk = _client->forceStartVerified(hash, kForceStartAttempts,
             [this](const QString &s) { emit status(s); });
 
         emit quickFinished(resultOk, resultOk ? QString() : tr("Failed to force start."));
@@ -237,7 +298,7 @@ void Worker::doApply()
         _client->login();
         const auto &p = applyParams;
 
-        if (!p.trackers.isEmpty()) {
+        if (!p.trackers.isEmpty() && caps.addTrackers) {
             try {
                 _client->addTrackers(p.hash, p.trackers);
             } catch (const std::exception &ex) {
@@ -253,34 +314,34 @@ void Worker::doApply()
             }
         }
 
-        if (p.category != p.initialCategory) {
+        if (caps.setCategory && p.category != initialCategory) {
             emit status(tr("Setting category..."));
             try { _client->setCategory(p.hash, p.category); }
-            catch (const QbtException &ex) { Log::write(QStringLiteral("setCategory: %1").arg(ex.message)); }
+            catch (const ClientException &ex) { Log::write(QStringLiteral("setCategory: %1").arg(ex.message)); }
         }
 
-        if (p.tags != p.initialTags) {
+        if (caps.setTags && p.tags != initialTags) {
             emit status(tr("Setting tags..."));
-            try { _client->setTags(p.hash, p.tags, p.initialTags); }
-            catch (const QbtException &ex) { Log::write(QStringLiteral("setTags: %1").arg(ex.message)); }
+            try { _client->setTags(p.hash, p.tags, initialTags); }
+            catch (const ClientException &ex) { Log::write(QStringLiteral("setTags: %1").arg(ex.message)); }
         }
 
         if (!p.savePath.isEmpty()
-            && p.savePath.compare(p.initialSavePath, Qt::CaseInsensitive) != 0) {
+            && p.savePath.compare(initialSavePath, Qt::CaseInsensitive) != 0) {
             emit status(tr("Setting save path..."));
             try { _client->setLocation(p.hash, p.savePath); }
-            catch (const QbtException &ex) { Log::write(QStringLiteral("setLocation: %1").arg(ex.message)); }
+            catch (const ClientException &ex) { Log::write(QStringLiteral("setLocation: %1").arg(ex.message)); }
         }
 
         if (p.forceStart) {
             emit status(tr("Force starting..."));
-            resultOk = _client->forceStartVerified(p.hash, 5,
+            resultOk = _client->forceStartVerified(p.hash, kForceStartAttempts,
                 [this](const QString &s) { emit status(s); });
         } else {
             emit status(tr("Starting..."));
             try { _client->setForceStart(p.hash, false); } catch (const std::exception &ex) { Log::write(QStringLiteral("reset forceStart: %1").arg(QString::fromUtf8(ex.what()))); }
             _client->startTorrent(p.hash);
-            sleepCancellable(500);
+            sleepCancellable(kStartSettleMs);
             auto t = _client->infoOne(p.hash);
             resultOk = t && !t->isStopped();
         }
@@ -314,7 +375,13 @@ void Worker::doPoll()
             return;
         }
 
-        if (!_client->hasSessionCookie() && _transmissionSessionId.isEmpty())
+        // Re-login only when a session-based backend lost its session; aria2
+        // is stateless and needs no login per tick.
+        const bool sessionLost =
+            (_detectedType == TorrentClient::ClientType::QBittorrent && !_client->hasSessionCookie())
+            || (_detectedType == TorrentClient::ClientType::Transmission
+                && _client->transmissionSessionId().isEmpty());
+        if (sessionLost)
             _client->login();
         pollInfo = _client->infoOne(targetHash);
         pollFiles = _client->files(targetHash);

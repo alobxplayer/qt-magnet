@@ -5,6 +5,10 @@ project(qt-magnet VERSION 1.1.1 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+set(QT_MAGNET_VERSION "${PROJECT_VERSION}")
+set(QT_MAGNET_VERSION_RC "${PROJECT_VERSION}.0")
+string(REPLACE "." "," QT_MAGNET_VERSION_RC ${QT_MAGNET_VERSION_RC})
+
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
@@ -13,6 +17,14 @@ find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Network LinguistTools)
 
 set(SOURCES
     src/main.cpp
+    src/adddialog.cpp
+    src/adddialog.h
+    src/addpage.cpp
+    src/addpage.h
+    src/darktheme.cpp
+    src/darktheme.h
+    src/passkey.cpp
+    src/passkey.h
     src/config.cpp
     src/config.h
     src/logger.cpp
@@ -26,28 +38,41 @@ set(SOURCES
     src/torrentpayload.h
     src/format.cpp
     src/format.h
-    src/qbtclient.cpp
-    src/qbtclient.h
+    src/torrentclient.cpp
+    src/torrentclient.h
+    src/torrenttypes.h
+    src/torrentbackend.cpp
+    src/torrentbackend.h
+    src/torrentbackend_qbittorrent.cpp
+    src/torrentbackend_transmission.cpp
+    src/torrentbackend_aria2.cpp
     src/worker.cpp
     src/worker.h
-    src/adddialog.cpp
-    src/adddialog.h
     src/settingsdialog.cpp
     src/settingsdialog.h
     src/magnethandler.h
+    resources/appicons.qrc
 )
 
 if(WIN32)
+    configure_file(resources/win/app.rc.in ${CMAKE_CURRENT_BINARY_DIR}/resources/win/app.rc @ONLY)
+    configure_file(resources/win/app.ico ${CMAKE_CURRENT_BINARY_DIR}/resources/win/app.ico COPYONLY)
+    # Re-copy the icon when it changes and rebuild the resource object:
+    # configure_file alone does not create build dependencies for windres.
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS resources/win/app.ico)
+    set_source_files_properties(${CMAKE_CURRENT_BINARY_DIR}/resources/win/app.rc PROPERTIES
+        OBJECT_DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/resources/win/app.ico)
     list(APPEND SOURCES
         src/secretstore_win.cpp
         src/magnethandler_win.cpp
-        resources/win/app.rc
+        ${CMAKE_CURRENT_BINARY_DIR}/resources/win/app.rc
     )
     set(PLATFORM_LIBS
         crypt32
         advapi32
         shell32
         ole32
+        dwmapi
     )
 elseif(UNIX AND NOT APPLE)
     list(APPEND SOURCES
@@ -72,6 +97,8 @@ elseif(APPLE)
 endif()
 
 add_executable(qt-magnet WIN32 ${SOURCES})
+
+target_compile_definitions(qt-magnet PRIVATE QT_MAGNET_VERSION="${PROJECT_VERSION}")
 
 target_include_directories(qt-magnet PRIVATE src ${LIBSECRET_INCLUDES})
 
@@ -113,14 +140,22 @@ set(TEST_SOURCES
     src/secretstore.h
     src/magnetlink.cpp
     src/magnetlink.h
+    src/passkey.cpp
+    src/passkey.h
     src/torrentfile.cpp
     src/torrentfile.h
     src/torrentpayload.cpp
     src/torrentpayload.h
     src/format.cpp
     src/format.h
-    src/qbtclient.cpp
-    src/qbtclient.h
+    src/torrentclient.cpp
+    src/torrentclient.h
+    src/torrenttypes.h
+    src/torrentbackend.cpp
+    src/torrentbackend.h
+    src/torrentbackend_qbittorrent.cpp
+    src/torrentbackend_transmission.cpp
+    src/torrentbackend_aria2.cpp
     src/worker.cpp
     src/worker.h
 )

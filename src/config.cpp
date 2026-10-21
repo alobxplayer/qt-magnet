@@ -3,6 +3,7 @@
 #include "secretstore.h"
 
 #include <QCoreApplication>
+#include <QDate>
 #include <QDir>
 #include <QFile>
 #include <QSaveFile>
@@ -22,48 +23,64 @@ bool Config::isComplete() const
     return !host.isEmpty() && port > 0 && port < 65536;
 }
 
+namespace {
+
+// Credentials live in the OS secret store, referenced by an encrypted marker
+// in config.json; `plain` is the pre-migration in-memory copy.
+QString loadCredential(const QString &plain, const QString &enc, const QString &storeKey)
+{
+    if (!plain.isEmpty())
+        return plain;
+    if (enc.isEmpty())
+        return QString();
+    return SecretStore::load(storeKey, enc);
+}
+
+void storeCredential(QString *enc, const QString &plain, const QString &storeKey)
+{
+    if (plain.isEmpty()) {
+        if (!enc->isEmpty())
+            SecretStore::clear(storeKey, *enc);
+        enc->clear();
+        return;
+    }
+    *enc = SecretStore::store(storeKey, plain);
+}
+
+} // namespace
+
 QString Config::getPassword() const
 {
-    if (!password.isEmpty())
-        return password;
-    if (passwordEnc.isEmpty())
-        return QString();
-    return SecretStore::load(username, passwordEnc);
+    return loadCredential(password, passwordEnc, username);
 }
 
 void Config::setPassword(const QString &plain)
 {
     password.clear();
-    if (plain.isEmpty()) {
-        if (!passwordEnc.isEmpty())
-            SecretStore::clear(username, passwordEnc);
-        passwordEnc.clear();
-        return;
-    }
-    passwordEnc = SecretStore::store(username, plain);
+    storeCredential(&passwordEnc, plain, username);
 }
 
 QString Config::getApiKey() const
 {
-    if (!apiKey.isEmpty())
-        return apiKey;
-    if (apiKeyEnc.isEmpty())
-        return QString();
-    return SecretStore::load(QStringLiteral("apikey"), apiKeyEnc);
+    return loadCredential(apiKey, apiKeyEnc, QStringLiteral("apikey"));
 }
 
 void Config::setApiKey(const QString &plain)
 {
     apiKey.clear();
-    if (plain.isEmpty()) {
-        if (!apiKeyEnc.isEmpty())
-            SecretStore::clear(QStringLiteral("apikey"), apiKeyEnc);
-        apiKeyEnc.clear();
-        return;
-    }
-    apiKeyEnc = SecretStore::store(QStringLiteral("apikey"), plain);
+    storeCredential(&apiKeyEnc, plain, QStringLiteral("apikey"));
 }
 
+QString Config::getRutrackerPasskey() const
+{
+    return loadCredential(rutrackerPasskey, rutrackerPasskeyEnc, QStringLiteral("rutracker-passkey"));
+}
+
+void Config::setRutrackerPasskey(const QString &plain)
+{
+    rutrackerPasskey.clear();
+    storeCredential(&rutrackerPasskeyEnc, plain, QStringLiteral("rutracker-passkey"));
+}
 
 QString Config::dirPath()
 {
@@ -76,6 +93,31 @@ QString Config::dirPath()
 QString Config::filePath()
 {
     return dirPath() + QStringLiteral("/config.json");
+}
+
+void Config::bumpStats(const QString &monthKey, int count, qint64 bytes)
+{
+    if (statsMonth != monthKey) {
+        statsMonth = monthKey;
+        statsAdded = 0;
+        statsBytes = 0;
+    }
+    statsAdded += count;
+    statsBytes += bytes;
+}
+
+void Config::recordAdded(qint64 bytes)
+{
+    // Fresh load-modify-save: the live Config copy may be stale relative to
+    // other writes (settings, header state).
+    Config c = Config::load();
+    c.bumpStats(QDate::currentDate().toString(QStringLiteral("yyyy-MM")), 1, bytes);
+    try {
+        c.save();
+    } catch (const std::exception &ex) {
+        // Statistics must never break the add flow; log and continue.
+        Log::write(QStringLiteral("Failed to save stats: %1").arg(QString::fromUtf8(ex.what())));
+    }
 }
 
 Config Config::load()
@@ -105,6 +147,8 @@ Config Config::load()
     c.authMode           = o.value(QStringLiteral("authMode")).toString(c.authMode);
     c.apiKeyEnc          = o.value(QStringLiteral("apiKeyEnc")).toString(c.apiKeyEnc);
     c.apiKey             = o.value(QStringLiteral("apiKey")).toString(c.apiKey);
+    c.rutrackerPasskeyEnc = o.value(QStringLiteral("rutrackerPasskeyEnc")).toString(c.rutrackerPasskeyEnc);
+    c.rutrackerPasskey    = o.value(QStringLiteral("rutrackerPasskey")).toString(c.rutrackerPasskey);
     c.quickMode          = o.value(QStringLiteral("quickMode")).toBool(c.quickMode);
     c.forceStartDelayMs  = qBound(0, o.value(QStringLiteral("forceStartDelayMs")).toInt(c.forceStartDelayMs), 60000);
     c.metadataTimeoutSec = qBound(5, o.value(QStringLiteral("metadataTimeoutSec")).toInt(c.metadataTimeoutSec), 3600);
@@ -119,23 +163,39 @@ Config Config::load()
     c.defaultTags        = o.value(QStringLiteral("defaultTags")).toString(c.defaultTags);
     c.contentLayout      = o.value(QStringLiteral("contentLayout")).toString(c.contentLayout);
     c.treeHeaderState    = o.value(QStringLiteral("treeHeaderState")).toString();
+    c.statsMonth         = o.value(QStringLiteral("statsMonth")).toString();
+    c.statsAdded         = qMax(0, o.value(QStringLiteral("statsAdded")).toInt());
+    c.statsBytes         = qMax<qint64>(0, static_cast<qint64>(o.value(QStringLiteral("statsBytes")).toDouble()));
     return c;
 }
 
-void Config::save() const
+void Config::save()
 {
+    // Migrate any plaintext credentials into the secret store; never persist
+    // them in config.json.
+    if (!password.isEmpty()) {
+        passwordEnc = SecretStore::store(username, password);
+        password.clear();
+    }
+    if (!apiKey.isEmpty()) {
+        apiKeyEnc = SecretStore::store(QStringLiteral("apikey"), apiKey);
+        apiKey.clear();
+    }
+    if (!rutrackerPasskey.isEmpty()) {
+        rutrackerPasskeyEnc = SecretStore::store(QStringLiteral("rutracker-passkey"), rutrackerPasskey);
+        rutrackerPasskey.clear();
+    }
+
     QJsonObject o;
     o[QStringLiteral("host")]               = host;
     o[QStringLiteral("port")]               = port;
     o[QStringLiteral("useHttps")]           = useHttps;
     o[QStringLiteral("username")]           = username;
     o[QStringLiteral("passwordEnc")]        = passwordEnc;
-    if (!password.isEmpty())
-        o[QStringLiteral("password")]       = password;
     o[QStringLiteral("authMode")]           = authMode;
     o[QStringLiteral("apiKeyEnc")]          = apiKeyEnc;
-    if (!apiKey.isEmpty())
-        o[QStringLiteral("apiKey")]         = apiKey;
+    if (!rutrackerPasskeyEnc.isEmpty())
+        o[QStringLiteral("rutrackerPasskeyEnc")] = rutrackerPasskeyEnc;
     o[QStringLiteral("quickMode")]          = quickMode;
     o[QStringLiteral("forceStartDelayMs")]  = forceStartDelayMs;
     o[QStringLiteral("metadataTimeoutSec")] = metadataTimeoutSec;
@@ -151,6 +211,11 @@ void Config::save() const
     o[QStringLiteral("contentLayout")]      = contentLayout;
     if (!treeHeaderState.isEmpty())
         o[QStringLiteral("treeHeaderState")] = treeHeaderState;
+    if (statsAdded > 0) {
+        o[QStringLiteral("statsMonth")] = statsMonth;
+        o[QStringLiteral("statsAdded")] = statsAdded;
+        o[QStringLiteral("statsBytes")] = static_cast<double>(statsBytes);
+    }
 
     QDir().mkpath(dirPath());
     QSaveFile f(filePath());

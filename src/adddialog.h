@@ -1,115 +1,83 @@
 #pragma once
 #include <QDialog>
-#include <QTreeWidget>
-#include <QComboBox>
-#include <QLineEdit>
-#include <QCheckBox>
 #include <QLabel>
-#include <QProgressBar>
 #include <QPushButton>
+#include <QTabWidget>
 #include <QTimer>
-#include <QMenu>
-#include <functional>
 #include "torrentpayload.h"
 
 class Config;
-class Worker;
-struct TorrentFile;
-struct TorrentInfo;
+class AddPage;
+class QMimeData;
 
-enum TreeDataRole {
-    FileIndexRole        = Qt::UserRole,
-    FileSizeRole         = Qt::UserRole + 1,
-    PriorityRole         = Qt::UserRole + 2,
-    OriginalPriorityRole = Qt::UserRole + 3,
-    PrioBeforeUncheckRole= Qt::UserRole + 4,
-    IsFileRole           = Qt::UserRole + 5,
-    BaseNameRole         = Qt::UserRole + 6,
-    ProgressRole         = Qt::UserRole + 7
-};
-
+// The Add window: hosts one AddPage per torrent in tabs (the tab bar is
+// hidden for a single torrent), owns the shared Add / Add all / Cancel
+// buttons, and accepts dropped or pasted magnet links and .torrent files
+// as new tabs.
 class AddDialog : public QDialog {
     Q_OBJECT
 public:
+    // Normal flow: a compact window while the metadata loads.
     AddDialog(const Config &cfg, const TorrentPayload &payload, bool quick, QWidget *parent = nullptr);
+    // Interactive window: adopts pages handed off from a loading window.
+    AddDialog(const Config &cfg, QWidget *parent);
     ~AddDialog() override;
 
-    int exitCode() const { return _exitCode; }
+    int exitCode() const { return _successor ? _successor->exitCode() : _exitCode; }
 
 protected:
     void closeEvent(QCloseEvent *e) override;
     void reject() override;
+    void keyPressEvent(QKeyEvent *e) override;
+    void dragEnterEvent(QDragEnterEvent *e) override;
+    void dropEvent(QDropEvent *e) override;
 
 private slots:
-    void onOk();
+    void onPageStateChanged();
+    void onPageCloseRequested();
+    void onTabCloseRequested(int index);
+    void onCurrentTabChanged(int index);
+    void onAdd();
+    void onAddAll();
     void onCancel();
-    void onStatus(const QString &text);
-    void onPrepareFinished(bool success, const QString &error);
-    void onApplyFinished(bool success, const QString &error);
-    void onQuickFinished(bool success, const QString &error);
-    void onCleanupFinished();
-    void onTreeContextMenu(const QPoint &pos);
-    void onHeaderContextMenu(const QPoint &pos);
-    void onTreeItemChanged(QTreeWidgetItem *item, int column);
-    void updateSummary();
-    void onPollTick();
-    void onPollFinished(bool success);
 
 private:
-    enum Phase { Preparing, Ready, Applying, Done };
-
-    void buildUi();
-    void updateTitle();
-    void saveHeaderState();
-    void startPrepare();
-    void populateInteractive(const QVector<TorrentFile> &files);
-    void buildTree(const QVector<TorrentFile> &files);
-    void setPriority(int priority);
-    void checkAll(bool on);
-    void setControlsEnabled(bool on);
-    void showError(const QString &msg);
-    void scheduleClose();
-    void cleanupAndClose();
-
-    static void setSubtreeCheck(QTreeWidgetItem *item, bool on);
-    static void setSubtreePriority(QTreeWidgetItem *item, int priority);
-    static void refreshAncestors(QTreeWidgetItem *item);
-    static Qt::CheckState computeFolderState(QTreeWidgetItem *folder);
-    static void updateFileText(QTreeWidgetItem *item);
-    static void forEachFile(QTreeWidgetItem *item, const std::function<void(QTreeWidgetItem *)> &fn);
-    static void forEachFileInTree(QTreeWidget *tree, const std::function<void(QTreeWidgetItem *)> &fn);
-    struct FolderStats {
-        qint64 size = 0;
-        int fileCount = 0;
-        double doneBytes = 0.0;
-    };
-    static FolderStats computeFolder(QTreeWidgetItem *item);
+    void init();
+    void addTorrent(const TorrentPayload &payload);
+    void attachPage(AddPage *page);
+    void removeTab(int index);
+    void updateFooter();
+    void openInteractiveWindow();
+    void updateTabLabels();
+    void handleMimeData(const QMimeData *md);
+    void addMagnetsFromText(const QString &text, int &added, int &dups, QStringList &problems);
+    void reportDropStatus(int added, int dups, const QStringList &problems);
+    bool isAlreadyOpen(const TorrentPayload &payload) const;
+    void pasteFromClipboard();
+    void scheduleShellClose();
+    void collectPageResults();
+    void recomputeExitCode();
+    bool allPagesTerminal() const;
+    bool allPagesSucceeded() const;
+    AddPage *currentPage() const;
+    QList<AddPage *> pages() const;
 
     const Config &_cfg;
-    TorrentPayload _payload;
     bool _quick;
-    Phase _phase = Preparing;
-    int _exitCode = 1;
-    bool _blockTreeSignals = false;
-
-    Worker *_worker = nullptr;
-
-    QLabel *_nameLabel = nullptr;
-    QLabel *_versionBadge = nullptr;
-    QLineEdit *_filterEdit = nullptr;
-    QTreeWidget *_tree = nullptr;
-    QComboBox *_categoryBox = nullptr;
-    QLineEdit *_tagsEdit = nullptr;
-    QLineEdit *_pathEdit = nullptr;
-    QCheckBox *_forceBox = nullptr;
-    QLabel *_summaryLabel = nullptr;
+    // The interactive window never hands off; the loading window passes its
+    // pages to a successor window and closes.
+    bool _interactiveOnly = false;
+    AddDialog *_successor = nullptr;
+    QTabWidget *_tabs = nullptr;
     QLabel *_statusLabel = nullptr;
-    QProgressBar *_progress = nullptr;
-    QPushButton *_okButton = nullptr;
+    QPushButton *_retryButton = nullptr;
+    QLabel *_summaryLabel = nullptr;
+    QPushButton *_addButton = nullptr;
+    QPushButton *_addAllButton = nullptr;
     QPushButton *_cancelButton = nullptr;
-    QMenu *_treeMenu = nullptr;
-    QAction *_actHigh = nullptr;
-    QAction *_actMaximum = nullptr;
-    QTimer *_autoCloseTimer = nullptr;
-    QTimer *_pollTimer = nullptr;
+    QTimer *_shellCloseTimer = nullptr;
+    bool _anySuccess = false;
+    bool _anyFailure = false;
+    bool _closing = false;
+    int _exitCode = 1;
 };

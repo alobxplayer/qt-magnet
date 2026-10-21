@@ -12,6 +12,8 @@ public:
     QString authMode          = QStringLiteral("password");
     QString apiKeyEnc;
     QString apiKey;
+    QString rutrackerPasskeyEnc;
+    QString rutrackerPasskey;
     bool    quickMode         = false;
     int     forceStartDelayMs = 5000;
     int     metadataTimeoutSec = 120;
@@ -27,6 +29,14 @@ public:
     QString contentLayout;
     QString treeHeaderState;
 
+    // Monthly usage statistics ("yyyy-MM" of the accumulated counters).
+    QString statsMonth;
+    int     statsAdded  = 0;
+    qint64  statsBytes  = 0;
+
+    void    bumpStats(const QString &monthKey, int count, qint64 bytes);
+    static void recordAdded(qint64 bytes);
+
     QString baseUrl() const;
     bool    isComplete() const;
 
@@ -36,9 +46,11 @@ public:
     QString getApiKey() const;
     void    setApiKey(const QString &plain);
 
-    static Config load();
-    void save() const;
+    QString getRutrackerPasskey() const;
+    void    setRutrackerPasskey(const QString &plain);
 
+    static Config load();
+    void save();
 
     static QString dirPath();
     static QString filePath();

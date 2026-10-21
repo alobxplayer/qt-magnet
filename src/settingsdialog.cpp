@@ -1,8 +1,10 @@
 #include "settingsdialog.h"
 #include "config.h"
+#include "darktheme.h"
+#include "format.h"
 #include "logger.h"
 #include "magnethandler.h"
-#include "qbtclient.h"
+#include "torrentclient.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -17,20 +19,20 @@
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSpinBox>
-#include <QStandardItemModel>
+#include <QTabWidget>
 #include <QThread>
 #include <QUrl>
 #include <QVBoxLayout>
 
-static const char *kAppTitle = "qt-magnet";
-
 namespace {
+constexpr int kThreadStopWaitMs = 1000;
+
 void setStatusLabelColor(QLabel *label, bool isSuccess, const QPalette &pal)
 {
-    bool isDark = pal.color(QPalette::WindowText).lightness() > 128;
+    bool isDark = DarkTheme::isDark();
     QPalette p = pal;
     p.setColor(QPalette::WindowText, isSuccess ? (isDark ? QColor(100, 220, 100) : Qt::darkGreen)
-                                               : (isDark ? QColor(255, 110, 110) : Qt::darkRed));
+                                                : (isDark ? QColor(255, 110, 110) : Qt::darkRed));
     label->setPalette(p);
 }
 } // namespace
@@ -48,7 +50,12 @@ SettingsDialog::~SettingsDialog()
     if (_testCancel)
         *_testCancel = true;
     if (_testThread && _testThread->isRunning()) {
-        _testThread->wait(1000);
+        _testThread->wait(kThreadStopWaitMs);
+    }
+    if (_rewriteCancel)
+        *_rewriteCancel = true;
+    if (_rewriteThread && _rewriteThread->isRunning()) {
+        _rewriteThread->wait(kThreadStopWaitMs);
     }
 }
 
@@ -56,45 +63,59 @@ void SettingsDialog::changeEvent(QEvent *e)
 {
     QDialog::changeEvent(e);
     if (e->type() == QEvent::PaletteChange || e->type() == QEvent::ThemeChange) {
+        // Theme re-apply (global) re-polishes state-colored labels automatically;
+        // handler status text just needs a refresh.
         refreshHandlerStatus();
-        if (_testButton && _testButton->isEnabled() && _testResult && !_testResult->text().isEmpty()) {
-            bool ok = _testResult->text().startsWith(tr("OK"));
-            setStatusLabelColor(_testResult, ok, palette());
-        }
     }
 }
 
 void SettingsDialog::buildUi()
 {
     setWindowTitle(tr("Settings"));
-    resize(540, 680);
-    setMinimumSize(450, 400);
+    resize(575, 596);
+    setMinimumSize(480, 420);
 
     auto *mainLayout = new QVBoxLayout(this);
 
-    auto *scroll = new QScrollArea(this);
-    scroll->setWidgetResizable(true);
-    scroll->setFrameShape(QFrame::NoFrame);
-    auto *scrollContent = new QWidget();
-    auto *stackLayout = new QVBoxLayout(scrollContent);
-    stackLayout->addWidget(buildConnectionGroup());
-    stackLayout->addWidget(buildHandlerGroup());
-    stackLayout->addWidget(buildBehaviorGroup());
-    stackLayout->addStretch();
-    scroll->setWidget(scrollContent);
-    mainLayout->addWidget(scroll, 1);
+    auto *tabs = new QTabWidget(this);
+    tabs->addTab(wrapInScroll(buildConnectionGroup()), tr("Connection"));
+    tabs->addTab(wrapInScroll(buildGeneralTab()), tr("General"));
+    tabs->addTab(wrapInScroll(buildAdvancedTab()), tr("Advanced"));
+    mainLayout->addWidget(tabs, 1);
 
     auto *buttonBox = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, this);
     buttonBox->setContentsMargins(12, 10, 12, 10);
     connect(buttonBox, &QDialogButtonBox::accepted, this, &SettingsDialog::onSave);
-    connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
+    connect(buttonBox, &QDialogButtonBox::rejected, this, &SettingsDialog::reject);
     mainLayout->addWidget(buttonBox);
+}
+
+QWidget *SettingsDialog::wrapSection(const QString &title, QWidget *content)
+{
+    auto *g = new QGroupBox(title, this);
+    auto *lay = new QVBoxLayout(g);
+    lay->setSpacing(6);
+    lay->addWidget(content);
+    return g;
+}
+
+// Tab pages must scroll: the General tab alone is taller than the dialog.
+QWidget *SettingsDialog::wrapInScroll(QWidget *content)
+{
+    auto *scroll = new QScrollArea(this);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setWidget(content);
+    return scroll;
 }
 
 QWidget *SettingsDialog::buildConnectionGroup()
 {
-    auto *g = new QGroupBox(tr("Connection"), this);
-    auto *form = new QFormLayout(g);
+    auto *page = new QWidget(this);
+    auto *form = new QFormLayout(page);
+    form->setContentsMargins(12, 12, 12, 12);
+    form->setVerticalSpacing(6);
+    form->setLabelAlignment(Qt::AlignVCenter | Qt::AlignLeft);
 
     _clientType = new QComboBox(this);
     _clientType->addItem(tr("Auto-detect"), QStringLiteral("auto"));
@@ -197,21 +218,29 @@ QWidget *SettingsDialog::buildConnectionGroup()
     testRow->addWidget(_testResult, 1);
     form->addRow(QString(), testRow);
 
-    return g;
+    return page;
 }
 
 void SettingsDialog::updateAuthModeVisibility()
 {
     QString ctype = _clientType->currentData().toString();
     bool isQbt = (ctype == QLatin1String("qbittorrent"));
+    bool isAria2 = (ctype == QLatin1String("aria2"));
 
-    if (_authLabel)
-        _authLabel->setVisible(isQbt);
-    if (_authMode)
-        _authMode->setVisible(isQbt);
+    _authLabel->setVisible(isQbt);
+    _authMode->setVisible(isQbt);
+
+    // The rewrite is a server-side operation aria2 cannot do.
+    if (isAria2) {
+        _rewriteTrackersButton->setEnabled(false);
+        _rewriteTrackersButton->setToolTip(tr("Not supported by this server."));
+    } else {
+        _rewriteTrackersButton->setEnabled(true);
+        _rewriteTrackersButton->setToolTip(tr("Replaces the passkey in the rutracker announce URLs of every "
+                                              "torrent already on the server with the passkey above."));
+    }
 
     bool isApiKey = isQbt && (_authMode->currentData().toString() == QLatin1String("apikey"));
-    bool isAria2 = (ctype == QLatin1String("aria2"));
 
     _userLabel->setVisible(!isApiKey && !isAria2);
     _username->setVisible(!isApiKey && !isAria2);
@@ -228,58 +257,70 @@ void SettingsDialog::updateAuthModeVisibility()
     _apiKeyWidget->setVisible(isApiKey);
 }
 
-QWidget *SettingsDialog::buildHandlerGroup()
+QWidget *SettingsDialog::buildSystemIntegrationGroup()
 {
     auto *container = new QWidget(this);
     auto *mainLayout = new QVBoxLayout(container);
-    mainLayout->setContentsMargins(0, 0, 0, 0);
+    mainLayout->setContentsMargins(0, 2, 0, 0);
+    mainLayout->setSpacing(10);
 
-    auto *gMagnet = new QGroupBox(tr("Magnet Protocol Handler (magnet:)"), this);
-    auto *lMagnet = new QVBoxLayout(gMagnet);
-    _magnetHandlerStatus = new QLabel(QStringLiteral("..."), this);
-    _magnetHandlerStatus->setTextFormat(Qt::PlainText);
-    _magnetHandlerStatus->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
-    _magnetHandlerStatus->setWordWrap(true);
-    lMagnet->addWidget(_magnetHandlerStatus);
+    auto makeRow = [this](const QString &title, QLabel **statusOut,
+                          const char *assignSlot, const char *removeSlot) -> QWidget * {
+        auto *row = new QWidget(this);
+        auto *rowLayout = new QHBoxLayout(row);
+        rowLayout->setContentsMargins(0, 0, 0, 0);
+        rowLayout->setSpacing(10);
 
-    auto *btnRowMagnet = new QHBoxLayout();
-    auto *assignMagnet = new QPushButton(tr("Register Magnet"), this);
-    connect(assignMagnet, &QPushButton::clicked, this, &SettingsDialog::assignMagnetHandler);
-    auto *removeMagnet = new QPushButton(tr("Unregister Magnet"), this);
-    connect(removeMagnet, &QPushButton::clicked, this, &SettingsDialog::removeMagnetHandler);
-    btnRowMagnet->addWidget(assignMagnet);
-    btnRowMagnet->addWidget(removeMagnet);
-    btnRowMagnet->addStretch();
-    lMagnet->addLayout(btnRowMagnet);
-    mainLayout->addWidget(gMagnet);
+        auto *textCol = new QVBoxLayout();
+        textCol->setSpacing(2);
+        auto *titleLabel = new QLabel(title, row);
+        textCol->addWidget(titleLabel);
+        QLabel *statusLabel = new QLabel(QStringLiteral("..."), row);
+        statusLabel->setTextFormat(Qt::PlainText);
+        statusLabel->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
+        statusLabel->setWordWrap(true);
+        textCol->addWidget(statusLabel);
+        *statusOut = statusLabel;
+        rowLayout->addLayout(textCol, 1);
 
-    auto *gTorrent = new QGroupBox(tr("Torrent Files Handler (.torrent)"), this);
-    auto *lTorrent = new QVBoxLayout(gTorrent);
-    _torrentHandlerStatus = new QLabel(QStringLiteral("..."), this);
-    _torrentHandlerStatus->setTextFormat(Qt::PlainText);
-    _torrentHandlerStatus->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
-    _torrentHandlerStatus->setWordWrap(true);
-    lTorrent->addWidget(_torrentHandlerStatus);
+        auto *assign = new QPushButton(tr("Set as default"), row);
+        connect(assign, SIGNAL(clicked()), this, assignSlot);
+        rowLayout->addWidget(assign, 0, Qt::AlignTop);
 
-    auto *btnRowTorrent = new QHBoxLayout();
-    auto *assignTorrent = new QPushButton(tr("Register .torrent"), this);
-    connect(assignTorrent, &QPushButton::clicked, this, &SettingsDialog::assignTorrentHandler);
-    auto *removeTorrent = new QPushButton(tr("Unregister .torrent"), this);
-    connect(removeTorrent, &QPushButton::clicked, this, &SettingsDialog::removeTorrentHandler);
-    btnRowTorrent->addWidget(assignTorrent);
-    btnRowTorrent->addWidget(removeTorrent);
-    btnRowTorrent->addStretch();
-    lTorrent->addLayout(btnRowTorrent);
-    mainLayout->addWidget(gTorrent);
+        auto *remove = new QPushButton(tr("Remove"), row);
+        connect(remove, SIGNAL(clicked()), this, removeSlot);
+        rowLayout->addWidget(remove, 0, Qt::AlignTop);
 
+        return row;
+    };
+
+    mainLayout->addWidget(makeRow(tr("Magnet links (magnet:)"), &_magnetHandlerStatus,
+                                  SLOT(assignMagnetHandler()), SLOT(removeMagnetHandler())));
+    mainLayout->addSpacing(8);
+    mainLayout->addWidget(makeRow(tr("Torrent files (.torrent)"), &_torrentHandlerStatus,
+                                  SLOT(assignTorrentHandler()), SLOT(removeTorrentHandler())));
     mainLayout->addStretch();
     return container;
 }
 
-QWidget *SettingsDialog::buildBehaviorGroup()
+QWidget *SettingsDialog::buildGeneralTab()
 {
-    auto *g = new QGroupBox(tr("Behavior"), this);
+    auto *page = new QWidget(this);
+    auto *lay = new QVBoxLayout(page);
+    lay->setContentsMargins(12, 12, 12, 12);
+    lay->setSpacing(12);
+    lay->addWidget(wrapSection(tr("System integration"), buildSystemIntegrationGroup()));
+    lay->addWidget(wrapSection(tr("General"), buildGeneralGroup()));
+    lay->addStretch();
+    return page;
+}
+
+QWidget *SettingsDialog::buildGeneralGroup()
+{
+    auto *g = new QWidget(this);
     auto *form = new QFormLayout(g);
+    form->setContentsMargins(0, 2, 0, 0);
+    form->setVerticalSpacing(6);
 
     _quickMode = new QCheckBox(tr("Quick mode (skip dialog)"), this);
     form->addRow(_quickMode);
@@ -288,6 +329,7 @@ QWidget *SettingsDialog::buildBehaviorGroup()
     form->addRow(_forceStart);
 
     _deleteOnCancel = new QCheckBox(tr("Delete torrent on cancel"), this);
+    _deleteOnCancel->setToolTip(tr("Deletes only torrents added by qt-magnet in this session"));
     form->addRow(_deleteOnCancel);
 
     _autoClose = new QCheckBox(tr("Close window on success"), this);
@@ -305,6 +347,87 @@ QWidget *SettingsDialog::buildBehaviorGroup()
     _contentLayout->addItem(tr("Subfolder"), QStringLiteral("Subfolder"));
     _contentLayout->addItem(tr("NoSubfolder"), QStringLiteral("NoSubfolder"));
     form->addRow(tr("Content &layout:"), _contentLayout);
+
+    auto *statsLabel = new QLabel(this);
+    statsLabel->setTextFormat(Qt::PlainText);
+    if (_cfg.statsAdded > 0) {
+        statsLabel->setText(tr("Added this month: %n torrent(s), %1", "", _cfg.statsAdded)
+                                .arg(Format::size(_cfg.statsBytes)));
+    } else {
+        statsLabel->setText(tr("Added this month: none"));
+    }
+    form->addRow(QString(), statsLabel);
+
+    _languageBox = new QComboBox(this);
+    _languageBox->addItem(tr("System default"), QStringLiteral("system"));
+    _languageBox->addItem(QStringLiteral("English (en_US)"), QStringLiteral("en_US"));
+    _languageBox->addItem(QStringLiteral("Русский (ru_RU)"), QStringLiteral("ru_RU"));
+    auto *langNote = new QLabel(tr("Takes effect after restart"), this);
+    auto *langRow = new QHBoxLayout();
+    langRow->setContentsMargins(0, 0, 0, 0);
+    langRow->setSpacing(8);
+    langRow->addWidget(_languageBox, 1);
+    langRow->addWidget(langNote);
+    auto *langWidget = new QWidget(this);
+    langWidget->setLayout(langRow);
+    form->addRow(tr("&Language:"), langWidget);
+
+    return g;
+}
+
+QWidget *SettingsDialog::buildAdvancedTab()
+{
+    auto *page = new QWidget(this);
+    auto *lay = new QVBoxLayout(page);
+    lay->setContentsMargins(12, 12, 12, 12);
+    lay->setSpacing(12);
+    lay->addWidget(wrapSection(tr("Tracker passkey"), buildPasskeyGroup()));
+    lay->addWidget(wrapSection(tr("Timeouts and delays"), buildAdvancedGroup()));
+    lay->addStretch();
+    return page;
+}
+
+QWidget *SettingsDialog::buildPasskeyGroup()
+{
+    auto *g = new QWidget(this);
+    auto *form = new QFormLayout(g);
+    form->setContentsMargins(0, 2, 0, 0);
+    form->setVerticalSpacing(6);
+
+    // Upload on rutracker is credited to the passkey embedded in announce
+    // URLs; a foreign or missing one leaves the user's stats uncounted.
+    _rutrackerPasskey = new QLineEdit(this);
+    _rutrackerPasskey->setPlaceholderText(tr("e.g. 4f80d2d6cc6200e0f589cde305af5742"));
+    _rutrackerPasskey->setToolTip(tr("Your rutracker.org passkey — the pk=… value from the tracker's "
+                                     "announce URL (seen in any .torrent downloaded while logged in).\n"
+                                     "When set, rutracker announce URLs are rewritten with it when "
+                                     "adding, so your uploaded traffic is counted on your account."));
+    form->addRow(tr("RuTracker &passkey:"), _rutrackerPasskey);
+
+    _rewriteTrackersButton = new QPushButton(tr("Rewrite trackers on the server"), this);
+    _rewriteTrackersButton->setToolTip(tr("Replaces the passkey in the rutracker announce URLs of every "
+                                          "torrent already on the server with the passkey above."));
+    connect(_rewriteTrackersButton, &QPushButton::clicked, this, &SettingsDialog::rewriteServerTrackers);
+    _rewriteTrackersResult = new QLabel(this);
+    _rewriteTrackersResult->setTextFormat(Qt::PlainText);
+    _rewriteTrackersResult->setWordWrap(true);
+    auto *rewriteRow = new QWidget(this);
+    auto *rewriteLay = new QHBoxLayout(rewriteRow);
+    rewriteLay->setContentsMargins(0, 0, 0, 0);
+    rewriteLay->setSpacing(8);
+    rewriteLay->addWidget(_rewriteTrackersButton, 0, Qt::AlignTop);
+    rewriteLay->addWidget(_rewriteTrackersResult, 1, Qt::AlignTop);
+    form->addRow(QString(), rewriteRow);
+
+    return g;
+}
+
+QWidget *SettingsDialog::buildAdvancedGroup()
+{
+    auto *g = new QWidget(this);
+    auto *form = new QFormLayout(g);
+    form->setContentsMargins(0, 2, 0, 0);
+    form->setVerticalSpacing(6);
 
     _metadataTimeout = new QSpinBox(this);
     _metadataTimeout->setRange(5, 3600);
@@ -326,12 +449,6 @@ QWidget *SettingsDialog::buildBehaviorGroup()
     _autoCloseMs->setSuffix(tr(" ms"));
     form->addRow(tr("&Auto-close delay:"), _autoCloseMs);
 
-    _languageBox = new QComboBox(this);
-    _languageBox->addItem(tr("System default"), QStringLiteral("system"));
-    _languageBox->addItem(QStringLiteral("English (en_US)"), QStringLiteral("en_US"));
-    _languageBox->addItem(QStringLiteral("Русский (ru_RU)"), QStringLiteral("ru_RU"));
-    form->addRow(tr("&Language:"), _languageBox);
-
     return g;
 }
 
@@ -346,8 +463,21 @@ void SettingsDialog::loadValues()
     int authIdx = _authMode->findData(_cfg.authMode);
     _authMode->setCurrentIndex(authIdx >= 0 ? authIdx : 0);
     _username->setText(_cfg.username);
-    _password->setText(_cfg.getPassword());
-    _apiKey->setText(_cfg.getApiKey());
+    QString storedPassword;
+    QString storedApiKey;
+    QString storedRutrackerPk;
+    try {
+        storedPassword = _cfg.getPassword();
+        storedApiKey = _cfg.getApiKey();
+        storedRutrackerPk = _cfg.getRutrackerPasskey();
+    } catch (const std::exception &ex) {
+        Log::write(QStringLiteral("Failed to load stored credentials: %1").arg(QString::fromUtf8(ex.what())));
+        QMessageBox::warning(this, QStringLiteral("qt-magnet"),
+                              tr("Failed to load stored credentials:\n\n%1").arg(QString::fromUtf8(ex.what())));
+    }
+    _password->setText(storedPassword);
+    _apiKey->setText(storedApiKey);
+    _rutrackerPasskey->setText(storedRutrackerPk);
     updateAuthModeVisibility();
 
     _quickMode->setChecked(_cfg.quickMode);
@@ -385,7 +515,7 @@ void SettingsDialog::onSave()
 {
     QString host = _host->text().trimmed();
     if (host.isEmpty()) {
-        QMessageBox::warning(this, QString::fromUtf8(kAppTitle), tr("Specify server host."));
+        QMessageBox::warning(this, QStringLiteral("qt-magnet"), tr("Specify server host."));
         _host->setFocus();
         return;
     }
@@ -399,8 +529,6 @@ void SettingsDialog::onSave()
                           ? _authMode->currentData().toString()
                           : QStringLiteral("password");
     newCfg.username = _username->text().trimmed();
-    newCfg.setPassword(_password->text());
-    newCfg.setApiKey(_apiKey->text().trimmed());
 
     newCfg.quickMode = _quickMode->isChecked();
     newCfg.forceStartDefault = _forceStart->isChecked();
@@ -416,26 +544,22 @@ void SettingsDialog::onSave()
     newCfg.language = _languageBox->currentData().toString();
 
     try {
+        newCfg.setPassword(_password->text());
+        newCfg.setApiKey(_apiKey->text().trimmed());
+        newCfg.setRutrackerPasskey(_rutrackerPasskey->text().trimmed());
         newCfg.save();
         _cfg = newCfg;
         Log::write(QStringLiteral("Settings saved."));
         accept();
     } catch (const std::exception &ex) {
         Log::write(QStringLiteral("Failed to save settings: %1").arg(QString::fromUtf8(ex.what())));
-        QMessageBox::critical(this, QString::fromUtf8(kAppTitle),
+        QMessageBox::critical(this, QStringLiteral("qt-magnet"),
                               tr("Failed to save settings:\n\n%1").arg(QString::fromUtf8(ex.what())));
     }
 }
 
-void SettingsDialog::testConnection()
+Config SettingsDialog::probeConfigFromUi() const
 {
-    if (_testThread && _testThread->isRunning())
-        return;
-
-    _testButton->setEnabled(false);
-    _testResult->setPalette(QPalette());
-    _testResult->setText(tr("Testing..."));
-
     Config probe;
     probe.clientType = _clientType->currentData().toString();
     probe.host = _host->text().trimmed();
@@ -448,6 +572,19 @@ void SettingsDialog::testConnection()
     probe.password = _password->text();
     probe.apiKey = _apiKey->text().trimmed();
     probe.requestTimeoutSec = _requestTimeout->value();
+    return probe;
+}
+
+void SettingsDialog::testConnection()
+{
+    if (_testThread && _testThread->isRunning())
+        return;
+
+    _testButton->setEnabled(false);
+    _testResult->setPalette(QPalette());
+    _testResult->setText(tr("Testing..."));
+
+    Config probe = probeConfigFromUi();
 
     _testCancel = std::make_shared<std::atomic<bool>>(false);
     auto cancelToken = _testCancel;
@@ -456,17 +593,15 @@ void SettingsDialog::testConnection()
     _testThread = QThread::create([self, probe, cancelToken]() {
         QString message;
         bool ok = false;
-        QbtClient::ClientType detected = QbtClient::ClientType::Auto;
         try {
-            QbtClient client(probe, [](const QString &) {}, [cancelToken]() {
+            TorrentClient client(probe, [](const QString &) {}, [cancelToken]() {
                 return cancelToken ? cancelToken->load() : false;
             });
             client.login();
             client.fetchServerInfo();
-            detected = client.detectedType;
             ok = true;
             message = tr("OK (%1, %2)").arg(client.appVersion, client.apiVersion);
-        } catch (const QbtException &ex) {
+        } catch (const ClientException &ex) {
             message = ex.message;
         } catch (const std::exception &ex) {
             message = QString::fromUtf8(ex.what());
@@ -475,15 +610,13 @@ void SettingsDialog::testConnection()
         if (!self)
             return;
 
-        QMetaObject::invokeMethod(self, [self, ok, message, detected]() {
+        QMetaObject::invokeMethod(self, [self, ok, message]() {
             if (!self)
                 return;
+            // ✓/✕ ride the font; the color follows the palette.
             setStatusLabelColor(self->_testResult, ok, self->palette());
-            self->_testResult->setText(message);
+            self->_testResult->setText((ok ? QStringLiteral("✓ ") : QStringLiteral("✕ ")) + message);
             self->_testButton->setEnabled(true);
-            if (ok && detected == QbtClient::ClientType::QBittorrent) {
-                self->updateAuthModeVisibility();
-            }
         }, Qt::QueuedConnection);
     });
     connect(_testThread, &QThread::finished, _testThread, &QObject::deleteLater);
@@ -491,38 +624,96 @@ void SettingsDialog::testConnection()
     _testThread->start();
 }
 
+void SettingsDialog::rewriteServerTrackers()
+{
+    if (_rewriteThread && _rewriteThread->isRunning())
+        return;
+
+    const QString passkey = _rutrackerPasskey->text().trimmed();
+    if (passkey.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("qt-magnet"), tr("Enter the RuTracker passkey first."));
+        _rutrackerPasskey->setFocus();
+        return;
+    }
+
+    _rewriteTrackersButton->setEnabled(false);
+    _rewriteTrackersResult->setPalette(palette());
+    _rewriteTrackersResult->setText(tr("Rewriting..."));
+
+    Config probe = probeConfigFromUi();
+
+    _rewriteCancel = std::make_shared<std::atomic<bool>>(false);
+    auto cancelToken = _rewriteCancel;
+
+    QPointer<SettingsDialog> self(this);
+    _rewriteThread = QThread::create([self, probe, passkey, cancelToken]() {
+        QString message;
+        bool ok = false;
+        try {
+            TorrentClient client(probe, [](const QString &) {}, [cancelToken]() {
+                return cancelToken ? cancelToken->load() : false;
+            });
+            client.login();
+            client.fetchServerInfo();
+            const TorrentClient::TrackerRewriteSummary s =
+                client.rewriteRutrackerPasskeys(passkey, nullptr, [cancelToken]() {
+                    return cancelToken ? cancelToken->load() : false;
+                });
+            ok = (s.failed == 0);
+            message = tr("%1 torrent(s) scanned, %2 tracker URL(s) rewritten, %3 failed.")
+                          .arg(s.torrents).arg(s.rewritten).arg(s.failed);
+        } catch (const ClientException &ex) {
+            message = ex.message;
+        } catch (const std::exception &ex) {
+            message = QString::fromUtf8(ex.what());
+        }
+
+        if (!self)
+            return;
+
+        QMetaObject::invokeMethod(self, [self, ok, message]() {
+            if (!self)
+                return;
+            setStatusLabelColor(self->_rewriteTrackersResult, ok, self->palette());
+            self->_rewriteTrackersResult->setText((ok ? QStringLiteral("✓ ") : QStringLiteral("✕ ")) + message);
+            self->_rewriteTrackersButton->setEnabled(true);
+        }, Qt::QueuedConnection);
+    });
+    connect(_rewriteThread, &QThread::finished, _rewriteThread, &QObject::deleteLater);
+    connect(_rewriteThread, &QThread::finished, this, [this] { _rewriteThread = nullptr; _rewriteCancel.reset(); });
+    _rewriteThread->start();
+}
+
 void SettingsDialog::refreshHandlerStatus()
 {
     try {
         HandlerInfo infoMagnet = MagnetHandler::queryMagnet();
         QString stateMagnet = infoMagnet.isOurs
-                                  ? tr("qt-magnet is default handler for magnet links.")
-                                  : tr("Current handler: %1.").arg(infoMagnet.description);
+                                  ? tr("● qt-magnet is the default for magnet links.")
+                                  : tr("○ Currently handled by: %1.").arg(infoMagnet.description);
         _magnetHandlerStatus->setText(stateMagnet);
-        if (infoMagnet.isOurs) {
+        if (infoMagnet.isOurs)
             setStatusLabelColor(_magnetHandlerStatus, true, palette());
-        } else {
-            _magnetHandlerStatus->setPalette(QPalette());
-        }
+        else
+            _magnetHandlerStatus->setPalette(palette());
     } catch (const std::exception &ex) {
         _magnetHandlerStatus->setText(tr("Query error: %1").arg(QString::fromUtf8(ex.what())));
-        _magnetHandlerStatus->setPalette(QPalette());
+        _magnetHandlerStatus->setPalette(palette());
     }
 
     try {
         HandlerInfo infoTorrent = MagnetHandler::queryTorrent();
         QString stateTorrent = infoTorrent.isOurs
-                                   ? tr("qt-magnet is default handler for .torrent files.")
-                                   : tr("Current handler: %1.").arg(infoTorrent.description);
+                                   ? tr("● qt-magnet is the default for .torrent files.")
+                                   : tr("○ Currently handled by: %1.").arg(infoTorrent.description);
         _torrentHandlerStatus->setText(stateTorrent);
-        if (infoTorrent.isOurs) {
+        if (infoTorrent.isOurs)
             setStatusLabelColor(_torrentHandlerStatus, true, palette());
-        } else {
-            _torrentHandlerStatus->setPalette(QPalette());
-        }
+        else
+            _torrentHandlerStatus->setPalette(palette());
     } catch (const std::exception &ex) {
         _torrentHandlerStatus->setText(tr("Query error: %1").arg(QString::fromUtf8(ex.what())));
-        _torrentHandlerStatus->setPalette(QPalette());
+        _torrentHandlerStatus->setPalette(palette());
     }
 }
 
@@ -534,7 +725,7 @@ void SettingsDialog::assignMagnetHandler()
         refreshHandlerStatus();
     } catch (const std::exception &ex) {
         Log::write(QStringLiteral("Assign magnet handler error: %1").arg(QString::fromUtf8(ex.what())));
-        QMessageBox::critical(this, QString::fromUtf8(kAppTitle),
+        QMessageBox::critical(this, QStringLiteral("qt-magnet"),
                               tr("Magnet registration failed:\n\n%1").arg(QString::fromUtf8(ex.what())));
     }
 }
@@ -544,12 +735,12 @@ void SettingsDialog::removeMagnetHandler()
     try {
         bool removed = MagnetHandler::unregisterMagnetHandler();
         if (!removed)
-            QMessageBox::information(this, QString::fromUtf8(kAppTitle),
+            QMessageBox::information(this, QStringLiteral("qt-magnet"),
                                      tr("No magnet registry entries found."));
         refreshHandlerStatus();
     } catch (const std::exception &ex) {
         Log::write(QStringLiteral("Remove magnet handler error: %1").arg(QString::fromUtf8(ex.what())));
-        QMessageBox::critical(this, QString::fromUtf8(kAppTitle),
+        QMessageBox::critical(this, QStringLiteral("qt-magnet"),
                               tr("Magnet unregistration failed:\n\n%1").arg(QString::fromUtf8(ex.what())));
     }
 }
@@ -562,7 +753,7 @@ void SettingsDialog::assignTorrentHandler()
         refreshHandlerStatus();
     } catch (const std::exception &ex) {
         Log::write(QStringLiteral("Assign torrent handler error: %1").arg(QString::fromUtf8(ex.what())));
-        QMessageBox::critical(this, QString::fromUtf8(kAppTitle),
+        QMessageBox::critical(this, QStringLiteral("qt-magnet"),
                               tr("Torrent registration failed:\n\n%1").arg(QString::fromUtf8(ex.what())));
     }
 }
@@ -572,12 +763,12 @@ void SettingsDialog::removeTorrentHandler()
     try {
         bool removed = MagnetHandler::unregisterTorrentHandler();
         if (!removed)
-            QMessageBox::information(this, QString::fromUtf8(kAppTitle),
+            QMessageBox::information(this, QStringLiteral("qt-magnet"),
                                      tr("No .torrent registry entries found."));
         refreshHandlerStatus();
     } catch (const std::exception &ex) {
         Log::write(QStringLiteral("Remove torrent handler error: %1").arg(QString::fromUtf8(ex.what())));
-        QMessageBox::critical(this, QString::fromUtf8(kAppTitle),
+        QMessageBox::critical(this, QStringLiteral("qt-magnet"),
                               tr("Torrent unregistration failed:\n\n%1").arg(QString::fromUtf8(ex.what())));
     }
 }
