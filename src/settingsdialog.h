@@ -19,6 +19,7 @@ public:
 
 protected:
     void changeEvent(QEvent *e) override;
+    void reject() override;
 
 private slots:
     void onSave();
@@ -81,6 +82,8 @@ private:
     QLineEdit *_defaultTags = nullptr;
     QLineEdit *_rutrackerPasskey = nullptr;
     QComboBox *_contentLayout = nullptr;
+    QComboBox *_fileViewMode = nullptr;
+    QString _initialFileViewMode;
     QSpinBox *_metadataTimeout = nullptr;
     QSpinBox *_requestTimeout = nullptr;
     QSpinBox *_forceDelayMs = nullptr;

@@ -131,7 +131,9 @@ void Worker::doPrepare()
 
         const QString targetHash = _payload.hash();
         QSet<QString> before = _client->allHashes();
-        existed = !targetHash.isEmpty() && before.contains(targetHash.toLower());
+        const QString targetHashV2 = _payload.hashV2();
+        existed = (!targetHash.isEmpty() && before.contains(targetHash.toLower()))
+               || (!targetHashV2.isEmpty() && before.contains(targetHashV2.toLower()));
 
         // Injected into magnet announce URLs before the add itself.
         QString ownPk;
@@ -276,16 +278,26 @@ void Worker::doQuickFinish()
 {
     try {
         if (_cfg.forceStartDelayMs > 0) {
-            emit status(tr("Pausing..."));
+            emit status(tr("Waiting before start..."));
             sleepCancellable(_cfg.forceStartDelayMs);
         }
         if (wasCancelled()) { emit quickFinished(false, QString()); return; }
 
-        emit status(tr("Force starting..."));
-        resultOk = _client->forceStartVerified(hash, kForceStartAttempts,
-            [this](const QString &s) { emit status(s); });
+        if (_cfg.forceStartDefault) {
+            emit status(tr("Force starting..."));
+            resultOk = _client->forceStartVerified(hash, kForceStartAttempts,
+                [this](const QString &s) { emit status(s); });
 
-        emit quickFinished(resultOk, resultOk ? QString() : tr("Failed to force start."));
+            emit quickFinished(resultOk, resultOk ? QString() : tr("Failed to force start."));
+        } else {
+            emit status(tr("Starting..."));
+            try { _client->setForceStart(hash, false); } catch (const std::exception &ex) { Log::write(QStringLiteral("reset forceStart: %1").arg(QString::fromUtf8(ex.what()))); }
+            _client->startTorrent(hash);
+            sleepCancellable(kStartSettleMs);
+            auto t = _client->infoOne(hash);
+            resultOk = t && !t->isStopped();
+            emit quickFinished(resultOk, resultOk ? QString() : tr("Status unverified."));
+        }
     } catch (const std::exception &ex) {
         Log::write(QStringLiteral("Quick mode error: %1").arg(QString::fromUtf8(ex.what())));
         emit quickFinished(false, QString::fromUtf8(ex.what()));
@@ -336,7 +348,7 @@ void Worker::doApply()
         if (p.forceStart) {
             emit status(tr("Force starting..."));
             resultOk = _client->forceStartVerified(p.hash, kForceStartAttempts,
-                [this](const QString &s) { emit status(s); });
+                    [this](const QString &s) { emit status(s); });
         } else {
             emit status(tr("Starting..."));
             try { _client->setForceStart(p.hash, false); } catch (const std::exception &ex) { Log::write(QStringLiteral("reset forceStart: %1").arg(QString::fromUtf8(ex.what()))); }

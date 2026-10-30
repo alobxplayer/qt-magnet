@@ -4,6 +4,8 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QFileInfo>
 #include <QProcess>
 #include <QThread>
@@ -11,6 +13,7 @@
 #include <QUrl>
 
 #include "config.h"
+#include "confignotifier.h"
 #include "format.h"
 #include "logger.h"
 #include "magnetlink.h"
@@ -105,6 +108,16 @@ static void runUnitTests()
     auto m4 = MagnetLink::parse(QStringLiteral("magnet:?xt=urn:btmh:1220") + v2full);
     eq(m4.hashV2, v2full, QStringLiteral("v2 full hash"));
     eq(m4.hash, v2full, QStringLiteral("v2 hash without truncation"));
+
+    TorrentFileData pureV2;
+    pureV2.version = TorrentVersion::V2;
+    pureV2.hashV2 = v2full;
+    pureV2.displayName = QStringLiteral("V2 Torrent");
+    const QString pureV2Uri = pureV2.toMagnetUri();
+    check(pureV2Uri.startsWith(QStringLiteral("magnet:?xt=urn:btmh:1220")), QStringLiteral("pure v2 toMagnetUri"));
+    auto mParsedV2 = MagnetLink::parse(pureV2Uri);
+    eq(mParsedV2.hashV2, v2full, QStringLiteral("pure v2 round-trip hashV2"));
+    eq(mParsedV2.displayName, QStringLiteral("V2 Torrent"), QStringLiteral("pure v2 round-trip dn"));
 
     auto m5 = MagnetLink::parse(
         QStringLiteral("magnet:?xt=urn:btih:c12fe1c06bba254a9dc9f519b335aa7c1367a88a&xt=urn:btmh:1220") + v2full);
@@ -1093,6 +1106,38 @@ static void runConfigAndSecretStoreTests()
     eq(loaded.getApiKey(), QStringLiteral("mysecretapikey"), QStringLiteral("Config: getApiKey reloaded from store"));
     eq(loaded.getRutrackerPasskey(), QStringLiteral("4f80d2d6cc6200e0f589cde305af5742"), QStringLiteral("Config: rutracker passkey reloaded from store"));
 
+    eq(cfg.fileViewMode, QStringLiteral("flat"), QStringLiteral("Config: default fileViewMode is flat"));
+    cfg.fileViewMode = QStringLiteral("tree");
+    cfg.save();
+    Config loadedTree = Config::load();
+    eq(loadedTree.fileViewMode, QStringLiteral("tree"), QStringLiteral("Config: fileViewMode tree saved and reloaded"));
+
+    // Unknown fileViewMode should fallback to flat
+    {
+        QFile rawFile(Config::filePath());
+        if (rawFile.open(QIODevice::ReadOnly)) {
+            QJsonDocument jdoc = QJsonDocument::fromJson(rawFile.readAll());
+            rawFile.close();
+            QJsonObject jobj = jdoc.object();
+            jobj[QStringLiteral("fileViewMode")] = QStringLiteral("invalid_mode");
+            if (rawFile.open(QIODevice::WriteOnly)) {
+                rawFile.write(QJsonDocument(jobj).toJson());
+                rawFile.close();
+                Config fallback = Config::load();
+                eq(fallback.fileViewMode, QStringLiteral("flat"), QStringLiteral("Config: invalid fileViewMode falls back to flat"));
+            }
+        }
+    }
+
+    // ConfigNotifier signal test
+    QString notifiedMode;
+    QMetaObject::Connection conn = QObject::connect(ConfigNotifier::instance(), &ConfigNotifier::fileViewModeChanged, [&](const QString &mode) {
+        notifiedMode = mode;
+    });
+    emit ConfigNotifier::instance()->fileViewModeChanged(QStringLiteral("tree"));
+    eq(notifiedMode, QStringLiteral("tree"), QStringLiteral("ConfigNotifier: signal emitted and received"));
+    QObject::disconnect(conn);
+
     // Legacy plaintext credentials must migrate into the secret store on save
     Config legacy;
     legacy.host = QStringLiteral("127.0.0.1");
@@ -1163,6 +1208,10 @@ static void runConfigAndSecretStoreTests()
     Config statsLoaded = Config::load();
     check(statsLoaded.statsMonth == QStringLiteral("2026-10") && statsLoaded.statsAdded == 1 && statsLoaded.statsBytes == 42,
           QStringLiteral("Stats: month/count/bytes survive save+load roundtrip"));
+
+    Config defCfg;
+    check(defCfg.forceStartDelayMs == 0, QStringLiteral("Config: forceStartDelayMs default is 0"));
+    check(defCfg.autoCloseMs == 5000, QStringLiteral("Config: autoCloseMs default is 5000"));
 
     Config::recordAdded(777);
     Config afterRecord = Config::load();

@@ -333,9 +333,9 @@ TorrentClient::TrackerRewriteSummary TorrentClient::rewriteRutrackerPasskeys(
     const std::function<bool()> &cancelled)
 {
     if (passkey.isEmpty())
-        throw ClientException(QStringLiteral("No passkey configured."));
+        throw ClientException(QCoreApplication::translate("TorrentClient", "No passkey configured."));
     if (detectedType == ClientType::Aria2)
-        throw ClientException(QStringLiteral("Tracker rewrite is not supported for aria2."));
+        throw ClientException(QCoreApplication::translate("TorrentClient", "Tracker rewrite is not supported for aria2."));
 
     TrackerRewriteSummary s;
     const QList<QString> hashes = allHashes().values();
@@ -530,12 +530,13 @@ bool TorrentClient::forceStartVerified(const QString &hash, int attempts,
     const auto last = infoOne(hash);
     if (detectedType == ClientType::Transmission || detectedType == ClientType::Aria2)
         return last && !last->isStopped();
-    return last && last->forceStart && !last->isStopped();
+    return last && (last->forceStart || last->isForced()) && !last->isStopped();
 }
 
 QString TorrentClient::stateString(const QString &state)
 {
     static const QHash<QString, const char *> m = {
+        { QStringLiteral("unknown"), QT_TRANSLATE_NOOP("TorrentClient", "Unknown") },
         { QStringLiteral("error"), QT_TRANSLATE_NOOP("TorrentClient", "Error") },
         { QStringLiteral("missingFiles"), QT_TRANSLATE_NOOP("TorrentClient", "Missing files") },
         { QStringLiteral("uploading"), QT_TRANSLATE_NOOP("TorrentClient", "Uploading") },

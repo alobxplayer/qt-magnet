@@ -1,4 +1,5 @@
 #include "addpage.h"
+#include "confignotifier.h"
 #include "config.h"
 #include "darktheme.h"
 #include "format.h"
@@ -50,13 +51,19 @@ enum TreeDataRole {
     PrioBeforeUncheckRole= Qt::UserRole + 4,
     BaseNameRole         = Qt::UserRole + 5,
     ProgressRole         = Qt::UserRole + 6,
-    RelPathRole          = Qt::UserRole + 7
+    RelPathRole          = Qt::UserRole + 7,
+    IsDirRole            = Qt::UserRole + 8
 };
 
 class FileTreeItem : public QTreeWidgetItem {
 public:
     using QTreeWidgetItem::QTreeWidgetItem;
     bool operator<(const QTreeWidgetItem &other) const override {
+        bool thisIsDir = data(kColFile, IsDirRole).toBool() || childCount() > 0;
+        bool otherIsDir = other.data(kColFile, IsDirRole).toBool() || other.childCount() > 0;
+        if (thisIsDir != otherIsDir)
+            return thisIsDir;
+
         const int col = treeWidget() ? treeWidget()->sortColumn() : 0;
         if (col == kColIndex) {
             int thisIdx = data(kColFile, FileIndexRole).toInt();
@@ -154,6 +161,19 @@ public:
 
 } // namespace
 
+class PriorityDelegate : public QStyledItemDelegate {
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+
+    void initStyleOption(QStyleOptionViewItem *option, const QModelIndex &index) const override
+    {
+        QStyledItemDelegate::initStyleOption(option, index);
+        if (option->state & QStyle::State_Selected) {
+            option->palette.setBrush(QPalette::Text, option->palette.highlightedText());
+        }
+    }
+};
+
 AddPage::AddPage(const Config &cfg, const TorrentPayload &payload, bool quick, QWidget *parent)
     : QWidget(parent), _cfg(cfg), _payload(payload), _quick(quick)
 {
@@ -164,6 +184,8 @@ AddPage::AddPage(const Config &cfg, const TorrentPayload &payload, bool quick, Q
         Log::write(QStringLiteral("Failed to load rutracker passkey: %1").arg(QString::fromUtf8(ex.what())));
     }
     buildUi();
+    connect(ConfigNotifier::instance(), &ConfigNotifier::fileViewModeChanged,
+            this, &AddPage::onFileViewModeChanged);
     QTimer::singleShot(0, this, &AddPage::startPrepare);
 }
 
@@ -299,6 +321,7 @@ void AddPage::buildUi()
     _tree->setContextMenuPolicy(Qt::CustomContextMenu);
 
     _tree->setItemDelegateForColumn(kColProgress, new ProgressBarDelegate(_tree));
+    _tree->setItemDelegateForColumn(kColPriority, new PriorityDelegate(_tree));
 
     _tree->setColumnWidth(kColIndex, kColWidthIndex);
     _tree->setColumnWidth(kColFile, kColWidthFile);
@@ -307,6 +330,11 @@ void AddPage::buildUi()
     _tree->setColumnWidth(kColPriority, kColWidthPriority);
 
     _tree->sortByColumn(kColIndex, Qt::AscendingOrder);
+
+    if (!_cfg.treeHeaderState.isEmpty()) {
+        const QByteArray ba = QByteArray::fromBase64(_cfg.treeHeaderState.toLatin1());
+        _tree->header()->restoreState(ba);
+    }
 
     // Enforce '#' as the first column and 'File' as the second.
     if (_tree->header()->visualIndex(kColIndex) != 0)
@@ -577,6 +605,7 @@ void AddPage::onCleanupFinished()
 
 void AddPage::populateInteractive(const QVector<TorrentFile> &files)
 {
+    _files = files;
     _phase = Ready;
     setControlsEnabled(true);
     _progress->setRange(0, 100);
@@ -629,6 +658,9 @@ void AddPage::populateInteractive(const QVector<TorrentFile> &files)
     updateMetaLine();
 
     const bool existed = _worker->existed;
+    if (existed && _worker->torrentInfo) {
+        _forceBox->setChecked(_worker->torrentInfo->forceStart || _worker->torrentInfo->isForced());
+    }
     _tree->setColumnHidden(kColProgress, !existed);
     _tree->setColumnHidden(kColPriority, !existed);
     if (existed && _pollTimer) {
@@ -686,45 +718,136 @@ void AddPage::buildFileTable(const QVector<TorrentFile> &files)
     _tree->setSortingEnabled(false);
     _tree->clear();
 
+    const bool isTreeMode = (_cfg.fileViewMode == QLatin1String("tree"));
+    _tree->setRootIsDecorated(isTreeMode);
+    _tree->setIndentation(isTreeMode ? 20 : 0);
+
     QFileIconProvider iconProvider;
     QIcon fallbackFileIcon = QApplication::style()->standardIcon(QStyle::SP_FileIcon);
+    QIcon dirIcon = QApplication::style()->standardIcon(QStyle::SP_DirIcon);
 
-    for (const TorrentFile &f : files) {
-        QString path = f.name;
-        path.replace(QLatin1Char('\\'), QLatin1Char('/'));
-        const QString relPath = path.startsWith(QLatin1Char('/')) ? path.mid(1) : path;
-        const QString baseName = relPath.section(QLatin1Char('/'), -1);
+    if (isTreeMode) {
+        _scopePath.clear();
+        if (_chipScroll)
+            _chipScroll->setVisible(false);
 
-        auto *item = new FileTreeItem();
-        item->setText(kColIndex, QString::number(f.index + 1));
-        item->setText(kColFile, relPath);
-        const auto setRole = [item](int role, const QVariant &value) {
-            item->setData(kColFile, role, value);
-        };
-        setRole(FileIndexRole, f.index);
-        setRole(FileSizeRole, f.size);
-        setRole(PriorityRole, f.priority);
-        setRole(OriginalPriorityRole, f.priority);
-        setRole(PrioBeforeUncheckRole, f.priority == 0 ? 1 : f.priority);
-        setRole(ProgressRole, f.progress);
-        setRole(BaseNameRole, baseName);
-        setRole(RelPathRole, relPath);
-        item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
-        item->setCheckState(kColFile, f.priority == 0 ? Qt::Unchecked : Qt::Checked);
-        item->setToolTip(kColFile, relPath);
+        QMap<QString, FileTreeItem *> dirItems;
+        QMap<QString, qint64> dirSizes;
 
-        QFileInfo fi(baseName);
-        QIcon fiIcon = iconProvider.icon(fi);
-        item->setIcon(kColFile, fiIcon.isNull() ? fallbackFileIcon : fiIcon);
+        for (const TorrentFile &f : files) {
+            QString path = f.name;
+            path.replace(QLatin1Char('\\'), QLatin1Char('/'));
+            const QString relPath = path.startsWith(QLatin1Char('/')) ? path.mid(1) : path;
+            const QString baseName = relPath.section(QLatin1Char('/'), -1);
 
-        _tree->addTopLevelItem(item);
-        updateFileText(item);
+            const QStringList parts = relPath.split(QLatin1Char('/'), Qt::SkipEmptyParts);
+            FileTreeItem *parentItem = nullptr;
+            QString currentDirPath;
+
+            for (int i = 0; i < parts.size() - 1; ++i) {
+                if (i > 0)
+                    currentDirPath += QLatin1Char('/');
+                currentDirPath += parts[i];
+
+                dirSizes[currentDirPath] += f.size;
+
+                auto it = dirItems.find(currentDirPath);
+                if (it == dirItems.end()) {
+                    FileTreeItem *dirItem = parentItem ? new FileTreeItem(parentItem) : new FileTreeItem();
+                    dirItem->setText(kColIndex, QString());
+                    dirItem->setText(kColFile, parts[i]);
+                    dirItem->setIcon(kColFile, dirIcon);
+                    dirItem->setData(kColFile, IsDirRole, true);
+                    dirItem->setData(kColFile, RelPathRole, currentDirPath);
+                    dirItem->setData(kColFile, FileIndexRole, -1);
+                    dirItem->setFlags(dirItem->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsAutoTristate);
+                    dirItem->setCheckState(kColFile, Qt::Checked);
+                    dirItem->setToolTip(kColFile, currentDirPath);
+
+                    if (!parentItem)
+                        _tree->addTopLevelItem(dirItem);
+                    dirItems.insert(currentDirPath, dirItem);
+                    parentItem = dirItem;
+                } else {
+                    parentItem = it.value();
+                }
+            }
+
+            FileTreeItem *item = parentItem ? new FileTreeItem(parentItem) : new FileTreeItem();
+            item->setText(kColIndex, QString::number(f.index + 1));
+            item->setText(kColFile, baseName);
+            const auto setRole = [item](int role, const QVariant &value) {
+                item->setData(kColFile, role, value);
+            };
+            setRole(FileIndexRole, f.index);
+            setRole(FileSizeRole, f.size);
+            setRole(PriorityRole, f.priority);
+            setRole(OriginalPriorityRole, f.priority);
+            setRole(PrioBeforeUncheckRole, f.priority == 0 ? 1 : f.priority);
+            setRole(ProgressRole, f.progress);
+            setRole(BaseNameRole, baseName);
+            setRole(RelPathRole, relPath);
+            setRole(IsDirRole, false);
+            item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+            item->setCheckState(kColFile, f.priority == 0 ? Qt::Unchecked : Qt::Checked);
+            item->setToolTip(kColFile, relPath);
+
+            QFileInfo fi(baseName);
+            QIcon fiIcon = iconProvider.icon(fi);
+            item->setIcon(kColFile, fiIcon.isNull() ? fallbackFileIcon : fiIcon);
+
+            if (!parentItem)
+                _tree->addTopLevelItem(item);
+            updateFileText(item);
+        }
+
+        for (auto it = dirItems.constBegin(); it != dirItems.constEnd(); ++it) {
+            qint64 dsz = dirSizes.value(it.key(), 0);
+            it.value()->setText(kColSize, Format::size(dsz));
+            it.value()->setData(kColFile, FileSizeRole, dsz);
+        }
+
+        _tree->expandAll();
+    } else {
+        for (const TorrentFile &f : files) {
+            QString path = f.name;
+            path.replace(QLatin1Char('\\'), QLatin1Char('/'));
+            const QString relPath = path.startsWith(QLatin1Char('/')) ? path.mid(1) : path;
+            const QString baseName = relPath.section(QLatin1Char('/'), -1);
+
+            auto *item = new FileTreeItem();
+            item->setText(kColIndex, QString::number(f.index + 1));
+            item->setText(kColFile, relPath);
+            const auto setRole = [item](int role, const QVariant &value) {
+                item->setData(kColFile, role, value);
+            };
+            setRole(FileIndexRole, f.index);
+            setRole(FileSizeRole, f.size);
+            setRole(PriorityRole, f.priority);
+            setRole(OriginalPriorityRole, f.priority);
+            setRole(PrioBeforeUncheckRole, f.priority == 0 ? 1 : f.priority);
+            setRole(ProgressRole, f.progress);
+            setRole(BaseNameRole, baseName);
+            setRole(RelPathRole, relPath);
+            setRole(IsDirRole, false);
+            item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+            item->setCheckState(kColFile, f.priority == 0 ? Qt::Unchecked : Qt::Checked);
+            item->setToolTip(kColFile, relPath);
+
+            QFileInfo fi(baseName);
+            QIcon fiIcon = iconProvider.icon(fi);
+            item->setIcon(kColFile, fiIcon.isNull() ? fallbackFileIcon : fiIcon);
+
+            _tree->addTopLevelItem(item);
+            updateFileText(item);
+        }
     }
 
     _tree->setSortingEnabled(true);
     _blockTreeSignals = false;
     applyRowVisibility();
-    buildChips();
+    if (!isTreeMode)
+        buildChips();
 }
 
 void AddPage::buildChips()
@@ -797,12 +920,39 @@ void AddPage::applyRowVisibility()
     if (!_tree)
         return;
     const QString filter = _filterEdit ? _filterEdit->text().trimmed() : QString();
-    for (int i = 0; i < _tree->topLevelItemCount(); ++i) {
-        QTreeWidgetItem *item = _tree->topLevelItem(i);
-        const QString relPath = item->data(kColFile, RelPathRole).toString();
-        const bool inScope = _scopePath.isEmpty() || relPath.startsWith(_scopePath + QLatin1Char('/'));
-        const bool matches = filter.isEmpty() || relPath.contains(filter, Qt::CaseInsensitive);
-        item->setHidden(!(inScope && matches));
+    const bool isTreeMode = (_cfg.fileViewMode == QLatin1String("tree"));
+
+    if (isTreeMode) {
+        std::function<bool(QTreeWidgetItem *)> filterItem = [&](QTreeWidgetItem *item) -> bool {
+            bool isDir = item->data(kColFile, IsDirRole).toBool() || item->childCount() > 0;
+            if (isDir) {
+                bool anyChildVisible = false;
+                for (int i = 0; i < item->childCount(); ++i) {
+                    if (filterItem(item->child(i)))
+                        anyChildVisible = true;
+                }
+                item->setHidden(!anyChildVisible);
+                if (anyChildVisible && !filter.isEmpty())
+                    item->setExpanded(true);
+                return anyChildVisible;
+            } else {
+                const QString relPath = item->data(kColFile, RelPathRole).toString();
+                const bool matches = filter.isEmpty() || relPath.contains(filter, Qt::CaseInsensitive);
+                item->setHidden(!matches);
+                return matches;
+            }
+        };
+
+        for (int i = 0; i < _tree->topLevelItemCount(); ++i)
+            filterItem(_tree->topLevelItem(i));
+    } else {
+        for (int i = 0; i < _tree->topLevelItemCount(); ++i) {
+            QTreeWidgetItem *item = _tree->topLevelItem(i);
+            const QString relPath = item->data(kColFile, RelPathRole).toString();
+            const bool inScope = _scopePath.isEmpty() || relPath.startsWith(_scopePath + QLatin1Char('/'));
+            const bool matches = filter.isEmpty() || relPath.contains(filter, Qt::CaseInsensitive);
+            item->setHidden(!(inScope && matches));
+        }
     }
 }
 
@@ -841,8 +991,11 @@ void AddPage::updateTableMessageGeometry()
     if (!_tableMessage || !_tableMessage->isVisible() || !_tree)
         return;
     const QSize vp = _tree->viewport()->size();
-    _tableMessage->resize(qMin(vp.width() - 32, _tableMessage->sizeHint().width() + 16),
-                          _tableMessage->sizeHint().height());
+    const int targetW = qMin(vp.width() - 32, _tableMessage->sizeHint().width() + 16);
+    const int h = _tableMessage->heightForWidth(targetW);
+    const int targetH = h > 0 ? h : _tableMessage->sizeHint().height();
+    _tableMessage->resize(targetW, targetH);
+
     _tableMessage->move((vp.width() - _tableMessage->width()) / 2,
                         qMax(24, (vp.height() - _tableMessage->height()) / 2));
 }
@@ -918,23 +1071,50 @@ void AddPage::onHeaderContextMenu(const QPoint &pos)
 
 void AddPage::onTreeItemChanged(QTreeWidgetItem *item, int column)
 {
-    if (_blockTreeSignals || column != kColFile)
+    if (_blockTreeSignals || column != kColFile || !item)
         return;
 
     _blockTreeSignals = true;
-    int prio = item->data(kColFile, PriorityRole).toInt();
-    if (item->checkState(kColFile) == Qt::Unchecked) {
-        if (prio != 0) {
-            item->setData(kColFile, PrioBeforeUncheckRole, prio);
-            item->setData(kColFile, PriorityRole, 0);
-        }
+    bool isDir = item->data(kColFile, IsDirRole).toBool() || item->childCount() > 0;
+    if (isDir) {
+        std::function<void(QTreeWidgetItem *)> syncChildren = [&](QTreeWidgetItem *parent) {
+            for (int i = 0; i < parent->childCount(); ++i) {
+                QTreeWidgetItem *ch = parent->child(i);
+                if (ch->data(kColFile, IsDirRole).toBool() || ch->childCount() > 0) {
+                    syncChildren(ch);
+                } else {
+                    int prio = ch->data(kColFile, PriorityRole).toInt();
+                    if (ch->checkState(kColFile) == Qt::Unchecked) {
+                        if (prio != 0) {
+                            ch->setData(kColFile, PrioBeforeUncheckRole, prio);
+                            ch->setData(kColFile, PriorityRole, 0);
+                        }
+                    } else if (ch->checkState(kColFile) == Qt::Checked) {
+                        if (prio == 0) {
+                            int prev = ch->data(kColFile, PrioBeforeUncheckRole).toInt();
+                            ch->setData(kColFile, PriorityRole, prev > 0 ? prev : 1);
+                        }
+                    }
+                    updateFileText(ch);
+                }
+            }
+        };
+        syncChildren(item);
     } else {
-        if (prio == 0) {
-            int prev = item->data(kColFile, PrioBeforeUncheckRole).toInt();
-            item->setData(kColFile, PriorityRole, prev > 0 ? prev : 1);
+        int prio = item->data(kColFile, PriorityRole).toInt();
+        if (item->checkState(kColFile) == Qt::Unchecked) {
+            if (prio != 0) {
+                item->setData(kColFile, PrioBeforeUncheckRole, prio);
+                item->setData(kColFile, PriorityRole, 0);
+            }
+        } else {
+            if (prio == 0) {
+                int prev = item->data(kColFile, PrioBeforeUncheckRole).toInt();
+                item->setData(kColFile, PriorityRole, prev > 0 ? prev : 1);
+            }
         }
+        updateFileText(item);
     }
-    updateFileText(item);
     _blockTreeSignals = false;
     updateSummary();
 }
@@ -962,23 +1142,27 @@ void AddPage::setPriority(int priority)
         return;
 
     _blockTreeSignals = true;
-    for (QTreeWidgetItem *item : items) {
-        setFilePriority(item, priority);
-    }
+    std::function<void(QTreeWidgetItem *)> applyPrio = [&](QTreeWidgetItem *item) {
+        if (item->data(kColFile, IsDirRole).toBool() || item->childCount() > 0) {
+            for (int i = 0; i < item->childCount(); ++i)
+                applyPrio(item->child(i));
+        } else {
+            setFilePriority(item, priority);
+        }
+    };
+    for (QTreeWidgetItem *item : items)
+        applyPrio(item);
     _blockTreeSignals = false;
     updateSummary();
 }
 
 void AddPage::checkAll(bool on)
 {
-    // Bulk operations respect the active scope and text filter:
-    // only rows the user can currently see are touched.
     _blockTreeSignals = true;
-    for (int i = 0; i < _tree->topLevelItemCount(); ++i) {
-        QTreeWidgetItem *item = _tree->topLevelItem(i);
+    forEachFileInTree(_tree, [on](QTreeWidgetItem *item) {
         if (!item->isHidden())
             setFileCheck(item, on);
-    }
+    });
     _blockTreeSignals = false;
     updateSummary();
 }
@@ -986,13 +1170,12 @@ void AddPage::checkAll(bool on)
 void AddPage::invertVisible()
 {
     _blockTreeSignals = true;
-    for (int i = 0; i < _tree->topLevelItemCount(); ++i) {
-        QTreeWidgetItem *item = _tree->topLevelItem(i);
+    forEachFileInTree(_tree, [](QTreeWidgetItem *item) {
         if (!item->isHidden()) {
             bool on = item->checkState(kColFile) != Qt::Checked;
             setFileCheck(item, on);
         }
-    }
+    });
     _blockTreeSignals = false;
     updateSummary();
 }
@@ -1037,7 +1220,10 @@ void AddPage::updateFileText(QTreeWidgetItem *item)
 
     item->setText(kColIndex, QString::number(idx + 1));
     item->setText(kColSize, Format::size(sz));
-    item->setText(kColProgress, prog <= 0.0 ? QStringLiteral("0%") : QString::number(qRound(prog * 100.0)) + QLatin1Char('%'));
+    const QString progStr = (prog >= 1.0) ? QStringLiteral("100%")
+                          : (prog <= 0.0) ? QStringLiteral("0%")
+                          : QString::number(prog * 100.0, 'f', 1) + QLatin1Char('%');
+    item->setText(kColProgress, progStr);
     item->setText(kColPriority, Format::priorityName(prio));
 
     if (prio == 0) {
@@ -1051,9 +1237,20 @@ void AddPage::updateFileText(QTreeWidgetItem *item)
 
 void AddPage::forEachFileInTree(QTreeWidget *tree, const std::function<void(QTreeWidgetItem *)> &fn)
 {
-    // The tree is flat: every file is a top-level item.
+    if (!tree)
+        return;
+    std::function<void(QTreeWidgetItem *)> visit = [&](QTreeWidgetItem *item) {
+        if (!item)
+            return;
+        if (item->data(kColFile, IsDirRole).toBool() || item->childCount() > 0) {
+            for (int i = 0; i < item->childCount(); ++i)
+                visit(item->child(i));
+        } else {
+            fn(item);
+        }
+    };
     for (int i = 0; i < tree->topLevelItemCount(); ++i)
-        fn(tree->topLevelItem(i));
+        visit(tree->topLevelItem(i));
 }
 
 void AddPage::updateSummary()
@@ -1070,9 +1267,17 @@ void AddPage::updateSummary()
             selCount++;
         }
     });
-    _summaryText = tr("Selected %1 / %2 (%3 / %4 files)")
-                       .arg(Format::size(selected), Format::size(total))
-                       .arg(selCount).arg(allCount);
+    if (allCount == 0) {
+        const qint64 knownSize = (_worker && _worker->torrentInfo) ? _worker->torrentInfo->totalSize : 0;
+        if (knownSize > 0)
+            _summaryText = tr("Total size: %1").arg(Format::size(knownSize));
+        else
+            _summaryText.clear();
+    } else {
+        _summaryText = tr("Selected %1 / %2 (%3 / %4 files)").arg(Format::size(selected), Format::size(total)).arg(selCount).arg(allCount);
+    }
+
+
     emit stateChanged();
 }
 
@@ -1120,6 +1325,7 @@ bool AddPage::commit()
         // disabled Add button.
         _statusError = true;
         _statusText = tr("No files selected.");
+        emit stateChanged();
         return false;
     }
 
@@ -1128,7 +1334,7 @@ bool AddPage::commit()
     // passkey injected into their tr= URLs by the worker before the add).
     QStringList trackers = _payload.trackers();
     int pkRewritten = 0;
-    if (_payload.isFile() && !_ownPk.isEmpty())
+    if (!_ownPk.isEmpty())
         trackers += PassKey::applyRutrackerPasskey(_payload.trackers(), _ownPk, &pkRewritten);
 
     saveHeaderState();
@@ -1222,11 +1428,12 @@ void AddPage::setControlsEnabled(bool on)
 
 bool AddPage::summaryHasSelection() const
 {
-    for (int i = 0; i < _tree->topLevelItemCount(); ++i) {
-        if (_tree->topLevelItem(i)->data(kColFile, PriorityRole).toInt() != 0)
-            return true;
-    }
-    return false;
+    bool hasSel = false;
+    forEachFileInTree(_tree, [&hasSel](QTreeWidgetItem *item) {
+        if (item->data(kColFile, PriorityRole).toInt() != 0)
+            hasSel = true;
+    });
+    return hasSel;
 }
 
 void AddPage::setOptionsEnabled(bool on)
@@ -1387,3 +1594,34 @@ void AddPage::onPollFinished(bool success)
     }
 }
 
+
+void AddPage::onFileViewModeChanged(const QString &mode)
+{
+    Q_UNUSED(mode);
+    if (_files.isEmpty() || !_tree)
+        return;
+
+    QMap<int, int> priorities;
+    QMap<int, Qt::CheckState> checks;
+    forEachFileInTree(_tree, [&](QTreeWidgetItem *item) {
+        int idx = item->data(kColFile, FileIndexRole).toInt();
+        priorities[idx] = item->data(kColFile, PriorityRole).toInt();
+        checks[idx] = item->checkState(kColFile);
+    });
+
+    buildFileTable(_files);
+
+    _blockTreeSignals = true;
+    forEachFileInTree(_tree, [&](QTreeWidgetItem *item) {
+        int idx = item->data(kColFile, FileIndexRole).toInt();
+        if (priorities.contains(idx)) {
+            int prio = priorities[idx];
+            item->setData(kColFile, PriorityRole, prio);
+            item->setCheckState(kColFile, checks.value(idx, prio == 0 ? Qt::Unchecked : Qt::Checked));
+            updateFileText(item);
+        }
+    });
+    _blockTreeSignals = false;
+
+    updateSummary();
+}

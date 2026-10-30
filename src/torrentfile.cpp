@@ -183,7 +183,9 @@ QString TorrentFileData::versionString() const
 
 QString TorrentFileData::toMagnetUri() const
 {
-    QString uri = QStringLiteral("magnet:?xt=urn:btih:") + (isV2() ? hashV2 : hash);
+    QString uri = isV2()
+        ? (QStringLiteral("magnet:?xt=urn:btmh:1220") + hashV2)
+        : (QStringLiteral("magnet:?xt=urn:btih:") + hash);
     if (isHybrid() && !hashV2.isEmpty())
         uri += QStringLiteral("&xt=urn:btmh:1220") + hashV2;
     if (!displayName.isEmpty())

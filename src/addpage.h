@@ -83,6 +83,7 @@ private slots:
     void onPollFinished(bool success);
     void onRetry();
     void onLearnPasskey();
+    void onFileViewModeChanged(const QString &mode);
 
 private:
     void buildUi();
@@ -119,6 +120,7 @@ private:
     Phase _phase = Preparing;
     int _exitCode = 1;
     bool _blockTreeSignals = false;
+    QVector<TorrentFile> _files;
     QString _scopePath;   // current chip scope: empty = all files
     bool _blindAdd = false; // metadata timed out: commit adds the whole torrent
     QString _ownPk;       // the user's saved rutracker passkey

@@ -1,4 +1,5 @@
 #include "adddialog.h"
+#include "settingsdialog.h"
 #include "addpage.h"
 #include "config.h"
 #include "darktheme.h"
@@ -54,11 +55,13 @@ AddDialog::AddDialog(const Config &cfg, QWidget *parent)
 // The successor window is unparented; by the time this runs it has closed.
 AddDialog::~AddDialog()
 {
+    qApp->removeEventFilter(this);
     delete _successor;
 }
 
 void AddDialog::init()
 {
+    qApp->installEventFilter(this);
     auto *mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(0, 0, 0, 0);
     mainLayout->setSpacing(0);
@@ -91,6 +94,11 @@ void AddDialog::init()
     });
     footerRow->addWidget(_retryButton, 0, Qt::AlignVCenter);
 
+    _settingsButton = new QPushButton(tr("Settings..."), footer);
+    _settingsButton->setAutoDefault(false);
+    connect(_settingsButton, &QPushButton::clicked, this, &AddDialog::onOpenSettings);
+    footerRow->addWidget(_settingsButton, 0, Qt::AlignVCenter);
+
     _summaryLabel = new QLabel(footer);
     _summaryLabel->setTextFormat(Qt::PlainText);
     footerRow->addWidget(_summaryLabel, 0, Qt::AlignVCenter);
@@ -100,7 +108,7 @@ void AddDialog::init()
     connect(_addButton, &QPushButton::clicked, this, &AddDialog::onAdd);
     footerRow->addWidget(_addButton, 0, Qt::AlignVCenter);
 
-    _addAllButton = new QPushButton(tr("Add &all"), footer);
+    _addAllButton = new QPushButton(tr("Add a&ll"), footer);
     _addAllButton->setAutoDefault(false);
     _addAllButton->hide();
     connect(_addAllButton, &QPushButton::clicked, this, &AddDialog::onAddAll);
@@ -228,8 +236,14 @@ void AddDialog::updateFooter()
     _addAllButton->setVisible(!_quick && n > 1);
     _addAllButton->setEnabled(anyCommittable);
 
-    _cancelButton->setText(allDone ? tr("Close") : tr("&Cancel"));
-    _cancelButton->setDefault(allDone);
+    if (_shellCloseTimer && _shellCloseTimer->isActive()) {
+        _cancelButton->setText(tr("Close (%1s)").arg(_autoCloseRemainingSec));
+        _cancelButton->setDefault(true);
+        _statusLabel->setText(tr("Done. Closing in %1 s...").arg(_autoCloseRemainingSec));
+    } else {
+        _cancelButton->setText(allDone ? tr("Close") : tr("&Cancel"));
+        _cancelButton->setDefault(allDone);
+    }
 
     if (!_quick) {
         const QString title = page ? page->titleText() : QStringLiteral("qt-magnet");
@@ -251,7 +265,8 @@ void AddDialog::onPageStateChanged()
             }
         }
     }
-    if (_cfg.autoCloseOnSuccess && _tabs->count() > 0
+    const bool shouldAutoClose = _quick || _cfg.autoCloseOnSuccess;
+    if (shouldAutoClose && _tabs->count() > 0
         && allPagesTerminal() && allPagesSucceeded()) {
         scheduleShellClose();
     }
@@ -332,15 +347,17 @@ void AddDialog::onAddAll()
         if (p->canCommit() && p->commit())
             ++started;
     }
+    updateFooter();
     if (started > 0)
         _statusLabel->setText(tr("Adding %n torrent(s)...", "", started));
     else
         _statusLabel->setText(tr("Nothing to add: no tab is ready yet."));
-    updateFooter();
 }
 
 void AddDialog::onCancel()
 {
+    if (_shellCloseTimer)
+        _shellCloseTimer->stop();
     if (_closing)
         return;
     if (_tabs->count() > 0 && allPagesTerminal()) {
@@ -354,8 +371,31 @@ void AddDialog::onCancel()
         p->requestCancel();
 }
 
+bool AddDialog::eventFilter(QObject *watched, QEvent *event)
+{
+    if (_shellCloseTimer && _shellCloseTimer->isActive() && event->type() == QEvent::MouseButtonPress) {
+        auto *w = qobject_cast<QWidget *>(watched);
+        if (w && (w == this || this->isAncestorOf(w))) {
+            if (w != _cancelButton) {
+                cancelAutoCloseTimer();
+            }
+        }
+    }
+    return QDialog::eventFilter(watched, event);
+}
+
+void AddDialog::changeEvent(QEvent *e)
+{
+    QDialog::changeEvent(e);
+    if (e->type() == QEvent::PaletteChange || e->type() == QEvent::ThemeChange) {
+        updateFooter();
+    }
+}
+
 void AddDialog::closeEvent(QCloseEvent *e)
 {
+    if (_shellCloseTimer)
+        _shellCloseTimer->stop();
     if (_closing) {
         e->accept();
         return;
@@ -520,16 +560,44 @@ void AddDialog::scheduleShellClose()
 {
     if (_shellCloseTimer && _shellCloseTimer->isActive())
         return;
+    const int totalMs = qMax(kMinAutoCloseMs, _cfg.autoCloseMs);
+    _autoCloseRemainingSec = qMax(1, (totalMs + 999) / 1000);
+
+    auto updateCountdownUi = [this] {
+        if (_statusLabel)
+            _statusLabel->setText(tr("Done. Closing in %1 s...").arg(_autoCloseRemainingSec));
+        if (_cancelButton)
+            _cancelButton->setText(tr("Close (%1s)").arg(_autoCloseRemainingSec));
+    };
+
+    updateCountdownUi();
+
     if (!_shellCloseTimer) {
         _shellCloseTimer = new QTimer(this);
-        _shellCloseTimer->setSingleShot(true);
         connect(_shellCloseTimer, &QTimer::timeout, this, [this] {
-            _closing = true;
-            recomputeExitCode();
-            close();
+            --_autoCloseRemainingSec;
+            if (_autoCloseRemainingSec <= 0) {
+                _shellCloseTimer->stop();
+                _closing = true;
+                recomputeExitCode();
+                close();
+            } else {
+                if (_statusLabel)
+                    _statusLabel->setText(tr("Done. Closing in %1 s...").arg(_autoCloseRemainingSec));
+                if (_cancelButton)
+                    _cancelButton->setText(tr("Close (%1s)").arg(_autoCloseRemainingSec));
+            }
         });
     }
-    _shellCloseTimer->start(qMax(kMinAutoCloseMs, _cfg.autoCloseMs));
+    _shellCloseTimer->start(1000);
+}
+
+void AddDialog::cancelAutoCloseTimer()
+{
+    if (_shellCloseTimer && _shellCloseTimer->isActive())
+        _shellCloseTimer->stop();
+    _autoCloseRemainingSec = 0;
+    updateFooter();
 }
 
 void AddDialog::collectPageResults()
@@ -567,4 +635,15 @@ bool AddDialog::allPagesSucceeded() const
         if (p->result() != 0)
             return false;
     return true;
+}
+
+void AddDialog::onOpenSettings()
+{
+    if (!_settingsDialog) {
+        _settingsDialog = new SettingsDialog(const_cast<Config &>(_cfg), this);
+        _settingsDialog->setAttribute(Qt::WA_DeleteOnClose);
+    }
+    _settingsDialog->show();
+    _settingsDialog->raise();
+    _settingsDialog->activateWindow();
 }

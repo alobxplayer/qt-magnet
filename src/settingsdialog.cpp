@@ -1,4 +1,5 @@
 #include "settingsdialog.h"
+#include "confignotifier.h"
 #include "config.h"
 #include "darktheme.h"
 #include "format.h"
@@ -8,6 +9,7 @@
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDate>
 #include <QDialogButtonBox>
 #include <QFormLayout>
 #include <QGroupBox>
@@ -348,11 +350,27 @@ QWidget *SettingsDialog::buildGeneralGroup()
     _contentLayout->addItem(tr("NoSubfolder"), QStringLiteral("NoSubfolder"));
     form->addRow(tr("Content &layout:"), _contentLayout);
 
+    _fileViewMode = new QComboBox(this);
+    _fileViewMode->addItem(tr("Flat list"), QStringLiteral("flat"));
+    _fileViewMode->addItem(tr("Tree view"), QStringLiteral("tree"));
+    connect(_fileViewMode, &QComboBox::currentIndexChanged, this, [this](int) {
+        if (_fileViewMode) {
+            QString mode = _fileViewMode->currentData().toString();
+            _cfg.fileViewMode = mode;
+            emit ConfigNotifier::instance()->fileViewModeChanged(mode);
+        }
+    });
+    form->addRow(tr("File list &view:"), _fileViewMode);
+
     auto *statsLabel = new QLabel(this);
     statsLabel->setTextFormat(Qt::PlainText);
-    if (_cfg.statsAdded > 0) {
-        statsLabel->setText(tr("Added this month: %n torrent(s), %1", "", _cfg.statsAdded)
-                                .arg(Format::size(_cfg.statsBytes)));
+    const QString currentMonth = QDate::currentDate().toString(QStringLiteral("yyyy-MM"));
+    const bool isCurrentMonth = (_cfg.statsMonth == currentMonth);
+    const int added = isCurrentMonth ? _cfg.statsAdded : 0;
+    const qint64 bytes = isCurrentMonth ? _cfg.statsBytes : 0;
+    if (added > 0) {
+        statsLabel->setText(tr("Added this month: %n torrent(s), %1", "", added)
+                                .arg(Format::size(bytes)));
     } else {
         statsLabel->setText(tr("Added this month: none"));
     }
@@ -503,6 +521,11 @@ void SettingsDialog::loadValues()
     else
         _languageBox->setCurrentIndex(0);
 
+    _initialFileViewMode = _cfg.fileViewMode;
+    int fvmIdx = _fileViewMode->findData(_cfg.fileViewMode);
+    if (fvmIdx >= 0)
+        _fileViewMode->setCurrentIndex(fvmIdx);
+
     for (int i = 0; i < _contentLayout->count(); ++i) {
         if (_contentLayout->itemData(i).toString() == _cfg.contentLayout) {
             _contentLayout->setCurrentIndex(i);
@@ -537,6 +560,7 @@ void SettingsDialog::onSave()
     newCfg.defaultCategory = _defaultCategory->text().trimmed();
     newCfg.defaultTags = _defaultTags->text().trimmed();
     newCfg.contentLayout = _contentLayout->currentData().toString();
+    newCfg.fileViewMode = _fileViewMode->currentData().toString();
     newCfg.metadataTimeoutSec = _metadataTimeout->value();
     newCfg.requestTimeoutSec = _requestTimeout->value();
     newCfg.forceStartDelayMs = _forceDelayMs->value();
@@ -549,6 +573,7 @@ void SettingsDialog::onSave()
         newCfg.setRutrackerPasskey(_rutrackerPasskey->text().trimmed());
         newCfg.save();
         _cfg = newCfg;
+        _initialFileViewMode = _cfg.fileViewMode;
         Log::write(QStringLiteral("Settings saved."));
         accept();
     } catch (const std::exception &ex) {
@@ -698,7 +723,7 @@ void SettingsDialog::refreshHandlerStatus()
             _magnetHandlerStatus->setPalette(palette());
     } catch (const std::exception &ex) {
         _magnetHandlerStatus->setText(tr("Query error: %1").arg(QString::fromUtf8(ex.what())));
-        _magnetHandlerStatus->setPalette(palette());
+        setStatusLabelColor(_magnetHandlerStatus, false, palette());
     }
 
     try {
@@ -713,7 +738,7 @@ void SettingsDialog::refreshHandlerStatus()
             _torrentHandlerStatus->setPalette(palette());
     } catch (const std::exception &ex) {
         _torrentHandlerStatus->setText(tr("Query error: %1").arg(QString::fromUtf8(ex.what())));
-        _torrentHandlerStatus->setPalette(palette());
+        setStatusLabelColor(_torrentHandlerStatus, false, palette());
     }
 }
 
@@ -771,4 +796,13 @@ void SettingsDialog::removeTorrentHandler()
         QMessageBox::critical(this, QStringLiteral("qt-magnet"),
                               tr("Torrent unregistration failed:\n\n%1").arg(QString::fromUtf8(ex.what())));
     }
+}
+
+void SettingsDialog::reject()
+{
+    if (_cfg.fileViewMode != _initialFileViewMode) {
+        _cfg.fileViewMode = _initialFileViewMode;
+        emit ConfigNotifier::instance()->fileViewModeChanged(_initialFileViewMode);
+    }
+    QDialog::reject();
 }

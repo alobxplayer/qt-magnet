@@ -3,9 +3,13 @@
 #include <QApplication>
 #include <QEvent>
 #include <QList>
+#include <QPainter>
+#include <QPainterPath>
 #include <QPalette>
+#include <QProxyStyle>
 #include <QStyle>
 #include <QStyleHints>
+#include <QStyleOption>
 #include <QWidget>
 
 #ifdef Q_OS_WIN
@@ -91,6 +95,9 @@ QPalette darkPalette()
     p.setColor(QPalette::Text, Qt::white);
     p.setColor(QPalette::Disabled, QPalette::Text, QColor(127, 127, 127));
     p.setColor(QPalette::Dark, QColor(35, 35, 35));
+    p.setColor(QPalette::Mid, QColor(110, 110, 110));
+    p.setColor(QPalette::Midlight, QColor(75, 75, 75));
+    p.setColor(QPalette::Light, QColor(120, 120, 120));
     p.setColor(QPalette::Shadow, QColor(20, 20, 20));
     p.setColor(QPalette::Button, QColor(53, 53, 53));
     p.setColor(QPalette::ButtonText, Qt::white);
@@ -103,6 +110,113 @@ QPalette darkPalette()
     p.setColor(QPalette::Disabled, QPalette::HighlightedText, QColor(127, 127, 127));
     return p;
 }
+
+class ContrastStyle : public QProxyStyle {
+public:
+    using QProxyStyle::QProxyStyle;
+
+    void drawPrimitive(PrimitiveElement pe, const QStyleOption *opt, QPainter *p, const QWidget *widget = nullptr) const override
+    {
+        if (g_dark && (pe == PE_IndicatorCheckBox || pe == PE_IndicatorItemViewItemCheck)) {
+            const bool isEnabled = (opt->state & State_Enabled);
+            const bool isChecked = (opt->state & State_On);
+            const bool isPartiallyChecked = (opt->state & State_NoChange);
+            const bool isHovered = (opt->state & State_MouseOver);
+            const bool isSunken = (opt->state & State_Sunken);
+            const bool isSelected = (opt->state & State_Selected);
+
+            const QRect r = opt->rect;
+            const int boxSize = 14;
+            const QRect box(r.x() + (r.width() - boxSize) / 2,
+                            r.y() + (r.height() - boxSize) / 2,
+                            boxSize, boxSize);
+
+            p->save();
+            p->setRenderHint(QPainter::Antialiasing, true);
+
+            QColor borderColor;
+            QColor bgColor;
+            if (!isEnabled) {
+                borderColor = QColor(80, 80, 80);
+                bgColor = QColor(42, 42, 42);
+            } else if (isSelected) {
+                borderColor = Qt::white;
+                bgColor = (isChecked || isPartiallyChecked)
+                              ? (isSunken ? QColor(20, 80, 150) : QColor(25, 95, 175))
+                              : (isSunken ? QColor(20, 20, 20) : QColor(32, 32, 32));
+            } else if (isChecked || isPartiallyChecked) {
+                borderColor = isHovered ? QColor(70, 160, 245) : QColor(42, 130, 218);
+                bgColor = isSunken
+                              ? QColor(35, 115, 200)
+                              : (isHovered ? QColor(50, 140, 230) : QColor(42, 130, 218));
+            } else {
+                borderColor = isHovered ? QColor(70, 160, 245) : QColor(145, 145, 145);
+                bgColor = isSunken
+                              ? QColor(25, 25, 25)
+                              : (isHovered ? QColor(46, 46, 46) : QColor(32, 32, 32));
+            }
+
+            p->setPen(QPen(borderColor, 1.2));
+            p->setBrush(bgColor);
+            p->drawRoundedRect(QRectF(box).adjusted(0.6, 0.6, -0.6, -0.6), 2.5, 2.5);
+
+            if (isChecked) {
+                p->setPen(QPen(isEnabled ? Qt::white : QColor(150, 150, 150), 1.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+                p->setBrush(Qt::NoBrush);
+                QPainterPath checkPath;
+                checkPath.moveTo(box.left() + 3.2, box.top() + 7.0);
+                checkPath.lineTo(box.left() + 5.8, box.top() + 10.0);
+                checkPath.lineTo(box.left() + 10.8, box.top() + 4.0);
+                p->drawPath(checkPath);
+            } else if (isPartiallyChecked) {
+                p->setPen(QPen(isEnabled ? Qt::white : QColor(150, 150, 150), 1.8, Qt::SolidLine, Qt::RoundCap));
+                p->drawLine(QPointF(box.left() + 3.5, box.center().y()),
+                            QPointF(box.right() - 3.5, box.center().y()));
+            }
+
+            p->restore();
+            return;
+        }
+
+        if (g_dark && pe == PE_IndicatorRadioButton) {
+            const bool isEnabled = (opt->state & State_Enabled);
+            const bool isChecked = (opt->state & State_On);
+            const bool isHovered = (opt->state & State_MouseOver);
+
+            const QRect r = opt->rect;
+            const int boxSize = 14;
+            const QRect box(r.x() + (r.width() - boxSize) / 2,
+                            r.y() + (r.height() - boxSize) / 2,
+                            boxSize, boxSize);
+
+            p->save();
+            p->setRenderHint(QPainter::Antialiasing, true);
+
+            const QColor borderColor = !isEnabled ? QColor(80, 80, 80)
+                                      : isHovered ? QColor(70, 160, 245)
+                                      : isChecked ? QColor(42, 130, 218)
+                                                  : QColor(145, 145, 145);
+            const QColor bgColor = !isEnabled ? QColor(42, 42, 42)
+                                  : isChecked ? QColor(42, 130, 218)
+                                              : QColor(32, 32, 32);
+
+            p->setPen(QPen(borderColor, 1.2));
+            p->setBrush(bgColor);
+            p->drawEllipse(QRectF(box).adjusted(0.6, 0.6, -0.6, -0.6));
+
+            if (isChecked) {
+                p->setPen(Qt::NoPen);
+                p->setBrush(isEnabled ? Qt::white : QColor(150, 150, 150));
+                p->drawEllipse(QRectF(box).adjusted(4.5, 4.5, -4.5, -4.5));
+            }
+
+            p->restore();
+            return;
+        }
+
+        QProxyStyle::drawPrimitive(pe, opt, p, widget);
+    }
+};
 
 } // namespace
 
@@ -136,8 +250,12 @@ void apply(QApplication &app)
 
     if (dark && g_initialStyle == QLatin1String("windowsvista")) {
         // Windows 10: the native style cannot render a dark theme, so switch
-        // to the standard platform-agnostic dark combination.
-        app.setStyle(QStringLiteral("Fusion"));
+        // to the standard platform-agnostic dark combination wrapped with high-contrast indicators.
+        app.setStyle(new ContrastStyle(QStringLiteral("Fusion")));
+        app.setPalette(darkPalette());
+    } else if (dark) {
+        // Dark theme on other platforms / styles: wrap with high-contrast indicators.
+        app.setStyle(new ContrastStyle(g_initialStyle));
         app.setPalette(darkPalette());
     } else {
         // Light, or the platform style handles dark natively (Windows 11,

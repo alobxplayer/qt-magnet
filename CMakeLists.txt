@@ -27,6 +27,8 @@ set(SOURCES
     src/passkey.h
     src/config.cpp
     src/config.h
+    src/confignotifier.cpp
+    src/confignotifier.h
     src/logger.cpp
     src/logger.h
     src/secretstore.h
@@ -135,6 +137,8 @@ set(TEST_SOURCES
     tests/mocktorrentserver.h
     src/config.cpp
     src/config.h
+    src/confignotifier.cpp
+    src/confignotifier.h
     src/logger.cpp
     src/logger.h
     src/secretstore.h

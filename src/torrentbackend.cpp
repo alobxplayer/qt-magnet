@@ -181,7 +181,7 @@ void ClientTransport::setCookies(const QList<QNetworkCookie> &cookies)
 
 [[noreturn]] void TorrentBackend::throwUnsupported(const char *operation) const
 {
-    throw ClientException(QStringLiteral("%1 is not supported by %2.")
+    throw ClientException(QCoreApplication::translate("TorrentClient", "%1 is not supported by %2.")
                            .arg(QString::fromLatin1(operation), backendName()), 0, QString());
 }
 

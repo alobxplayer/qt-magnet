@@ -4,9 +4,11 @@
 #include <QPushButton>
 #include <QTabWidget>
 #include <QTimer>
+#include <QPointer>
 #include "torrentpayload.h"
 
 class Config;
+#include "settingsdialog.h"
 class AddPage;
 class QMimeData;
 
@@ -26,6 +28,8 @@ public:
     int exitCode() const { return _successor ? _successor->exitCode() : _exitCode; }
 
 protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
+    void changeEvent(QEvent *e) override;
     void closeEvent(QCloseEvent *e) override;
     void reject() override;
     void keyPressEvent(QKeyEvent *e) override;
@@ -40,6 +44,7 @@ private slots:
     void onAdd();
     void onAddAll();
     void onCancel();
+    void onOpenSettings();
 
 private:
     void init();
@@ -55,6 +60,7 @@ private:
     bool isAlreadyOpen(const TorrentPayload &payload) const;
     void pasteFromClipboard();
     void scheduleShellClose();
+    void cancelAutoCloseTimer();
     void collectPageResults();
     void recomputeExitCode();
     bool allPagesTerminal() const;
@@ -71,11 +77,14 @@ private:
     QTabWidget *_tabs = nullptr;
     QLabel *_statusLabel = nullptr;
     QPushButton *_retryButton = nullptr;
+    QPushButton *_settingsButton = nullptr;
+    QPointer<SettingsDialog> _settingsDialog;
     QLabel *_summaryLabel = nullptr;
     QPushButton *_addButton = nullptr;
     QPushButton *_addAllButton = nullptr;
     QPushButton *_cancelButton = nullptr;
     QTimer *_shellCloseTimer = nullptr;
+    int _autoCloseRemainingSec = 0;
     bool _anySuccess = false;
     bool _anyFailure = false;
     bool _closing = false;

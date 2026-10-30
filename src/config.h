@@ -15,19 +15,20 @@ public:
     QString rutrackerPasskeyEnc;
     QString rutrackerPasskey;
     bool    quickMode         = false;
-    int     forceStartDelayMs = 5000;
+    int     forceStartDelayMs = 0;
     int     metadataTimeoutSec = 120;
     int     requestTimeoutSec = 20;
     bool    forceStartDefault = true;
     bool    deleteOnCancel    = true;
     bool    autoCloseOnSuccess = false;
-    int     autoCloseMs       = 2500;
+    int     autoCloseMs       = 5000;
     QString language;
     QString clientType        = QStringLiteral("auto");
     QString defaultCategory;
     QString defaultTags;
     QString contentLayout;
     QString treeHeaderState;
+    QString fileViewMode = QStringLiteral("flat");
 
     // Monthly usage statistics ("yyyy-MM" of the accumulated counters).
     QString statsMonth;

@@ -21,8 +21,8 @@
     </message>
     <message>
         <location filename="../src/adddialog.cpp" line="82"/>
-        <source>Add &amp;all</source>
-        <translation>Add &amp;all</translation>
+        <source>Add a&amp;ll</source>
+        <translation>Add a&amp;ll</translation>
     </message>
     <message>
         <location filename="../src/adddialog.cpp" line="88"/>
@@ -39,6 +39,14 @@
         <location filename="../src/adddialog.cpp" line="209"/>
         <source>Close</source>
         <translation>Close</translation>
+    </message>
+    <message>
+        <source>Done. Closing in %1 s...</source>
+        <translation>Done. Closing in %1 s...</translation>
+    </message>
+    <message>
+        <source>Close (%1s)</source>
+        <translation>Close (%1s)</translation>
     </message>
     <message>
         <location filename="../src/adddialog.cpp" line="246"/>
@@ -93,6 +101,10 @@
         <location filename="../src/adddialog.cpp" line="457"/>
         <source>Clipboard is empty.</source>
         <translation>Clipboard is empty.</translation>
+    </message>
+    <message>
+        <source>Settings...</source>
+        <translation>Settings...</translation>
     </message>
 </context>
 <context>
@@ -497,6 +509,10 @@ Hash (v2): %1</translation>
         <location filename="../src/addpage.cpp" line="1115"/>
         <source>Selected %1 / %2 (%3 / %4 files)</source>
         <translation>Selected %1 / %2 (%3 / %4 files)</translation>
+    </message>
+    <message>
+        <source>Total size: %1</source>
+        <translation>Total size: %1</translation>
     </message>
     <message>
         <location filename="../src/addpage.cpp" line="1163"/>
@@ -1077,6 +1093,18 @@ When set, rutracker announce URLs are rewritten with it when adding, so your upl
         <source>Current handler: %1.</source>
         <translation type="vanished">Current handler: %1.</translation>
     </message>
+    <message>
+        <source>Flat list</source>
+        <translation>Flat list</translation>
+    </message>
+    <message>
+        <source>Tree view</source>
+        <translation>Tree view</translation>
+    </message>
+    <message>
+        <source>File list &amp;view:</source>
+        <translation>File list &amp;view:</translation>
+    </message>
 </context>
 <context>
     <name>TorrentClient</name>
@@ -1247,6 +1275,22 @@ When set, rutracker announce URLs are rewritten with it when adding, so your upl
         <source>Moving</source>
         <translation>Moving</translation>
     </message>
+    <message>
+        <source>%1 is not supported by %2.</source>
+        <translation>%1 is not supported by %2.</translation>
+    </message>
+    <message>
+        <source>Unknown</source>
+        <translation>Unknown</translation>
+    </message>
+    <message>
+        <source>Unsupported backend for passkey rewrite</source>
+        <translation>Unsupported backend for passkey rewrite</translation>
+    </message>
+    <message>
+        <source>Cannot fetch trackers for rutracker passkey rewrite</source>
+        <translation>Cannot fetch trackers for rutracker passkey rewrite</translation>
+    </message>
 </context>
 <context>
     <name>TorrentFile</name>
@@ -1366,8 +1410,8 @@ When set, rutracker announce URLs are rewritten with it when adding, so your upl
     </message>
     <message>
         <location filename="../src/worker.cpp" line="280"/>
-        <source>Pausing...</source>
-        <translation>Pausing...</translation>
+        <source>Waiting before start...</source>
+        <translation>Waiting before start...</translation>
     </message>
     <message>
         <location filename="../src/worker.cpp" line="285"/>

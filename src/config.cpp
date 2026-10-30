@@ -152,7 +152,7 @@ Config Config::load()
     c.quickMode          = o.value(QStringLiteral("quickMode")).toBool(c.quickMode);
     c.forceStartDelayMs  = qBound(0, o.value(QStringLiteral("forceStartDelayMs")).toInt(c.forceStartDelayMs), 60000);
     c.metadataTimeoutSec = qBound(5, o.value(QStringLiteral("metadataTimeoutSec")).toInt(c.metadataTimeoutSec), 3600);
-    c.requestTimeoutSec  = qBound(3, o.value(QStringLiteral("requestTimeoutSec")).toInt(c.requestTimeoutSec), 300);
+    c.requestTimeoutSec  = qBound(5, o.value(QStringLiteral("requestTimeoutSec")).toInt(c.requestTimeoutSec), 300);
     c.forceStartDefault  = o.value(QStringLiteral("forceStartDefault")).toBool(c.forceStartDefault);
     c.deleteOnCancel     = o.value(QStringLiteral("deleteOnCancel")).toBool(c.deleteOnCancel);
     c.autoCloseOnSuccess = o.value(QStringLiteral("autoCloseOnSuccess")).toBool(c.autoCloseOnSuccess);
@@ -163,6 +163,9 @@ Config Config::load()
     c.defaultTags        = o.value(QStringLiteral("defaultTags")).toString(c.defaultTags);
     c.contentLayout      = o.value(QStringLiteral("contentLayout")).toString(c.contentLayout);
     c.treeHeaderState    = o.value(QStringLiteral("treeHeaderState")).toString();
+    c.fileViewMode       = o.value(QStringLiteral("fileViewMode")).toString(c.fileViewMode);
+    if (c.fileViewMode != QLatin1String("tree"))
+        c.fileViewMode = QStringLiteral("flat");
     c.statsMonth         = o.value(QStringLiteral("statsMonth")).toString();
     c.statsAdded         = qMax(0, o.value(QStringLiteral("statsAdded")).toInt());
     c.statsBytes         = qMax<qint64>(0, static_cast<qint64>(o.value(QStringLiteral("statsBytes")).toDouble()));
@@ -209,6 +212,7 @@ void Config::save()
     o[QStringLiteral("defaultCategory")]    = defaultCategory;
     o[QStringLiteral("defaultTags")]        = defaultTags;
     o[QStringLiteral("contentLayout")]      = contentLayout;
+    o[QStringLiteral("fileViewMode")]         = fileViewMode;
     if (!treeHeaderState.isEmpty())
         o[QStringLiteral("treeHeaderState")] = treeHeaderState;
     if (statsAdded > 0) {

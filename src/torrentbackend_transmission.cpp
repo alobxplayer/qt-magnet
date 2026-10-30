@@ -432,13 +432,29 @@ void TransmissionBackend::removeTrackers(const QString &hash, const QStringList 
     if (trackers.isEmpty())
         return;
 
-    QJsonObject args;
-    args[QStringLiteral("ids")] = QJsonArray{hash};
+    QJsonObject getArgs;
+    getArgs[QStringLiteral("ids")] = QJsonArray{ hash };
+    getArgs[QStringLiteral("fields")] = QJsonArray{ QStringLiteral("trackerStats") };
+    QJsonObject res = execTransmissionRpc(QStringLiteral("torrent-get"), getArgs);
+    const QJsonArray torrents = res.value(QStringLiteral("torrents")).toArray();
+    if (torrents.isEmpty())
+        return;
+
+    const QJsonArray stats = torrents[0].toObject().value(QStringLiteral("trackerStats")).toArray();
     QJsonArray trRemove;
-    for (const QString &tr : trackers)
-        trRemove.append(tr);
-    args[QStringLiteral("trackerRemove")] = trRemove;
-    execTransmissionRpc(QStringLiteral("torrent-set"), args);
+    for (const QJsonValue &v : stats) {
+        const QJsonObject tobj = v.toObject();
+        const QString url = tobj.value(QStringLiteral("announce")).toString();
+        if (trackers.contains(url))
+            trRemove.append(tobj.value(QStringLiteral("id")).toInt());
+    }
+
+    if (!trRemove.isEmpty()) {
+        QJsonObject setArgs;
+        setArgs[QStringLiteral("ids")] = QJsonArray{ hash };
+        setArgs[QStringLiteral("trackerRemove")] = trRemove;
+        execTransmissionRpc(QStringLiteral("torrent-set"), setArgs);
+    }
 }
 
 QStringList TransmissionBackend::torrentTrackers(const QString &hash)

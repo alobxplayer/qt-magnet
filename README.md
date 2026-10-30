@@ -34,12 +34,15 @@ chmod +x build.sh
 ./build.sh --test			# build and run smoke tests
 ```
 
-## Usage (GUI flags) (GUI flags is used only for testing)
+## Usage (CLI options)
 
 ```
 qt-magnet "magnet:?xt=urn:btih:…"   add a magnet link (default action)
+qt-magnet "path/to/file.torrent"    add a .torrent file
 qt-magnet                            open settings
-qt-magnet /register                  register as magnet: handler
+qt-magnet /register                  register as default for magnet: and .torrent
+qt-magnet /register-magnet           register as default for magnet: links
+qt-magnet /register-torrent          register as default for .torrent files
 qt-magnet /unregister                unregister
 qt-magnet /settings                  open settings
 qt-magnet /quick    "magnet:…"       quick mode (no dialog)
