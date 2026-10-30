@@ -35,16 +35,22 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup MSVC
-        uses: ilammy/msvc-dev-cmd@v1
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          arch: ${{ matrix.msvc_arch }}
+          python-version: '3.14'
 
       - name: Install Qt 6
         uses: jurplel/install-qt-action@v4
         with:
           version: '6.8.*'
           arch: ${{ matrix.arch }}
+          setup-python: false
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.msvc_arch }}
 
       - name: Setup Ninja
         uses: seanmiddleditch/gha-setup-ninja@v6
